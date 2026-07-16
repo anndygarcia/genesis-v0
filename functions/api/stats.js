@@ -10,16 +10,6 @@ export async function onRequest({ request, env }) {
       status: 503, headers: { 'content-type': 'application/json' },
     });
   }
-  // DEBUG — remove after verifying
-  if (request.url.includes('debug')) {
-    return new Response(JSON.stringify({
-      ok: true,
-      admin_key_len: env.ADMIN_KEY.length,
-      admin_key_first4: env.ADMIN_KEY.slice(0, 4),
-      has_kv: !!env.GENESIS_KV,
-      has_resend: !!env.RESEND_API_KEY,
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }
   if (!auth.startsWith('Basic ')) {
     return new Response('Auth required', {
       status: 401,
@@ -30,8 +20,10 @@ export async function onRequest({ request, env }) {
   try {
     provided = atob(auth.slice(6));
   } catch { /* fall through */ }
+  // HTTP Basic auth: "username:password" — password is everything after the first colon
+  const providedPassword = provided.includes(':') ? provided.split(':').slice(1).join(':') : provided;
   const expected = env.ADMIN_KEY;
-  if (provided !== expected) {
+  if (providedPassword !== expected) {
     return new Response('Forbidden', { status: 403 });
   }
 
