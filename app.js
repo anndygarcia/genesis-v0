@@ -789,19 +789,23 @@ ROOMS.sort((a, b) => (b.w * b.d) - (a.w * a.d)).forEach(room => {
 });
 
 const openingsList = document.getElementById('openings-list');
-[...DOORS.map(d => ({...d, kind: d.kind})), ...WINDOWS.map(w => ({...w, kind: 'window'}))].forEach(o => {
-  const li = document.createElement('li');
-  li.className = 'op-row';
-  const isDoor = 'kind' in o && (o.kind === 'exterior' || o.kind === 'interior');
-  li.innerHTML = `
-    <span class="op-icon">${isDoor ? '🚪' : '🪟'}</span>
-    <div class="op-text">
-      <strong>${o.label}</strong>
-      <span>${o.w}' wide · ${isDoor && o.kind === 'exterior' ? 'exterior' : isDoor ? 'interior' : 'window'}</span>
-    </div>
-  `;
-  openingsList.appendChild(li);
-});
+function buildOpeningsList(plan) {
+  if (!openingsList) return;
+  const doors = plan.doors.map(d => ({ ...d, kind: d.kind || 'exterior' }));
+  const windows = plan.windows.map(w => ({ ...w, kind: 'window' }));
+  openingsList.innerHTML = [...doors, ...windows].map(o => {
+    const isDoor = o.kind === 'exterior' || o.kind === 'interior';
+    return `
+    <li class="op-row">
+      <span class="op-icon">${isDoor ? '🚪' : '🪟'}</span>
+      <div class="op-text">
+        <strong>${o.label}</strong>
+        <span>${o.w}' wide · ${isDoor ? o.kind : 'window'}</span>
+      </div>
+    </li>`;
+  }).join('');
+}
+buildOpeningsList(state.house.plan);
 
 // ------------------------------------------------------------
 //   RESIZE
@@ -1043,9 +1047,16 @@ function computeEstimate() {
     cost,
   };
 }
-const ESTIMATE = computeEstimate();
+// Recompute whenever the plan changes; cache the value at module init for
+// the initial fillEstimate() call.
+let ESTIMATE = computeEstimate();
+function recomputeEstimate() {
+  ESTIMATE = computeEstimate();
+  fillEstimate();
+}
 
-// Populate the estimator panel
+// Populate the estimator panel — reads from a 1-shot cache. After a plan
+// change, call recomputeEstimate() (or rebuildSceneFromPlan()) to refresh.
 function fillEstimate() {
   const e = ESTIMATE;
   const $ = id => document.getElementById(id);
@@ -1353,6 +1364,15 @@ function rebuildSceneFromPlan(plan) {
         <div class="room-meta">${r.w}' × ${r.d}' · ${r.w * r.d} sq ft</div>
       </li>
     `).join('');
+  }
+
+  // Side-panel OPENINGS list (function defined inline above)
+  if (typeof buildOpeningsList === 'function') buildOpeningsList(state.house.plan);
+
+  // Quantity-takeoff panel
+  if (typeof fillEstimate === 'function') {
+    if (typeof recomputeEstimate === 'function') recomputeEstimate();
+    else fillEstimate();
   }
 }
 
