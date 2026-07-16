@@ -4,12 +4,6 @@
 // the email is just logged to Pages Functions logs (visible in the
 // Cloudflare dashboard). KV persistence is added once the namespace
 // is bound via env.GENESIS_KV.
-//
-// Secrets MUST be set as Cloudflare Pages env vars — NEVER inlined
-// in this file. See README for the setup steps.
-//   Pages dashboard → genesis-v0 → Settings → Environment variables
-//   Required:  RESEND_API_KEY, ADMIN_KEY
-//   Optional:  AUTORESPOND_FROM, ADMIN_TO
 
 export async function onRequestPost({ request, env }) {
   let body;
