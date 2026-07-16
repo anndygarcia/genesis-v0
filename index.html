@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Genesis — AI Blueprint to Buildable Plans</title>
+  <meta name="description" content="Genesis turns 2D blueprints into interactive, buildable 3D home models. Walk through your design before ground is broken.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container nav">
+      <a href="#" class="logo">
+        <span class="logo-mark">G</span>
+        <span class="logo-text">GENESIS<span class="logo-thin">v0</span></span>
+      </a>
+      <nav class="nav-links">
+        <a href="#product">Product</a>
+        <a href="#how">How it works</a>
+        <a href="#demo">Live demo</a>
+        <a href="#waitlist">Early access</a>
+      </nav>
+      <a href="#waitlist" class="btn btn-primary nav-cta">Get early access</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <span class="eyebrow">AI Property Reconstruction · v0 preview</span>
+      <h1 class="hero-title">Your <span class="accent">blueprint</span>, in 3D — before breaking ground.</h1>
+      <p class="hero-sub">Genesis reads a 2D floor plan and rebuilds it as an interactive, walkable 3D home. Measure walls, swap materials, share a link — all before a single nail is hammered.</p>
+      <div class="hero-ctas">
+        <a href="#demo" class="btn btn-primary btn-light">See live demo</a>
+        <a href="#how" class="btn btn-secondary btn-ghost">How it works →</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><strong>6+</strong><span>Rooms generated</span></div>
+        <div class="stat"><strong>~10s</strong><span>Reconstruction time</span></div>
+        <div class="stat"><strong>3D</strong><span>Walk-through ready</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- "What it does" 3-up -->
+  <section class="section" id="product">
+    <div class="container">
+      <span class="eyebrow">What Genesis does</span>
+      <h2 class="section-title">From a flat PDF, a house you can walk through.</h2>
+      <p class="section-sub">Three.js-powered viewer, parametric geometry, designed for builders, architects, and homeowners who'd rather see than squint.</p>
+
+      <div class="feature-grid">
+        <article class="feature">
+          <div class="feature-icon">⤴</div>
+          <h3>Upload a plan</h3>
+          <p>Drop in a PDF, PNG, or DWG. Genesis extracts walls, doors, windows, and dimensions — same shape, structurally correct.</p>
+        </article>
+        <article class="feature">
+          <div class="feature-icon">◉</div>
+          <h3>Walk the model</h3>
+          <p>Orbit the whole house or step inside in first-person. Every room, every opening, every roof edge — measurable in real units.</p>
+        </article>
+        <article class="feature">
+          <div class="feature-icon">✦</div>
+          <h3>Share a link</h3>
+          <p>Generate a permalink in one click. Send it to your contractor, your client, your spouse — no app install, no plugin, no license.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE 3D DEMO -->
+  <section class="section demo-section" id="demo">
+    <div class="container">
+      <span class="eyebrow">Live demo</span>
+      <h2 class="section-title">This is what Genesis ships today.</h2>
+      <p class="section-sub">A 6-room, single-story home with a gable roof, generated from a parametric floor plan. Drag to orbit, scroll to zoom, hit the button to walk inside.</p>
+
+      <div class="demo-wrap">
+        <div class="viewer">
+          <canvas id="three-canvas"></canvas>
+
+          <div class="viewer-overlay">
+            <div class="overlay-top">
+              <div class="overlay-tag">
+                <span class="dot"></span>
+                <span id="demo-title">Sample Home · Plan #1</span>
+              </div>
+              <div class="overlay-stats">
+                <span><strong id="stat-rooms">6</strong> rooms</span>
+                <span><strong id="stat-sqft">1,840</strong> sq ft</span>
+                <span><strong id="stat-walls">24</strong> walls</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="viewer-controls">
+            <button id="btn-orbit" class="vc-btn active" title="Orbit (drag)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3"/></svg>
+              Orbit
+            </button>
+            <button id="btn-walk" class="vc-btn" title="Walk (WASD + mouse)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2"/><path d="M12 7v6l4 4M12 13l-4 6"/></svg>
+              Walk inside
+            </button>
+            <button id="btn-reset" class="vc-btn" title="Reset camera">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15.5-6.3M21 4v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3M3 20v-5h5"/></svg>
+              Reset
+            </button>
+          </div>
+
+          <div class="viewer-help" id="viewer-help">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+          <div class="viewer-help hidden" id="viewer-help-walk">Click canvas to capture mouse · <strong>WASD</strong> to move · <strong>Esc</strong> to exit</div>
+        </div>
+
+        <aside class="rooms-panel">
+          <header class="rooms-header">
+            <h3>Rooms</h3>
+            <span class="rooms-count">6 spaces</span>
+          </header>
+          <ul class="rooms-list" id="rooms-list"></ul>
+
+          <header class="rooms-header" style="margin-top:24px">
+            <h3>Openings</h3>
+            <span class="rooms-count">doors & windows</span>
+          </header>
+          <ul class="openings-list" id="openings-list"></ul>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="section how-section" id="how">
+    <div class="container">
+      <span class="eyebrow">How it works</span>
+      <h2 class="section-title">From PDF to walkable home, in three steps.</h2>
+
+      <ol class="steps">
+        <li>
+          <span class="step-num">01</span>
+          <h3>Upload</h3>
+          <p>Drop in any 2D plan: PDF, PNG, JPEG, DWG, DXF. Genesis normalizes and parses the drawing.</p>
+        </li>
+        <li>
+          <span class="step-num">02</span>
+          <h3>Reconstruct</h3>
+          <p>Vision models detect walls, doors, windows, and rooms. The geometry engine extrudes them into a parametric 3D model.</p>
+        </li>
+        <li>
+          <span class="step-num">03</span>
+          <h3>Walk through</h3>
+          <p>Open the viewer in any browser. Measure, screenshot, share a link with your client or contractor.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Roadmap -->
+  <section class="section roadmap-section">
+    <div class="container">
+      <span class="eyebrow">Roadmap</span>
+      <h2 class="section-title">Shipping, in order.</h2>
+
+      <ul class="roadmap">
+        <li>
+          <span class="r-tag r-tag-shipped">v0 · today</span>
+          <div>
+            <h3>Interactive 3D viewer</h3>
+            <p>Parametric homes from procedural plans. Orbit + walk mode. Room labels with measurements.</p>
+          </div>
+        </li>
+        <li>
+          <span class="r-tag r-tag-next">v1 · next</span>
+          <div>
+            <h3>Real-plan ingestion</h3>
+            <p>Upload a PDF / DWG and run wall, door, and window detection. Geometry engine reconstructs the actual plan.</p>
+          </div>
+        </li>
+        <li>
+          <span class="r-tag r-tag-later">v2</span>
+          <div>
+            <h3>Material library & textures</h3>
+            <p>Brick, stucco, wood, stone — pick materials per surface. AI-detected from reference photos.</p>
+          </div>
+        </li>
+        <li>
+          <span class="r-tag r-tag-later">v3</span>
+          <div>
+            <h3>Export</h3>
+            <p>GLB for rendering, IFC for BIM, PDF dimensioned drawings for permitting.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- CTA / waitlist -->
+  <section class="cta-band" id="waitlist">
+    <div class="container cta-inner">
+      <div>
+        <h2>Building something different. Want first access?</h2>
+        <p>We're letting in a small cohort of Houston builders + homeowners this quarter. Tell us about your project.</p>
+      </div>
+      <form class="waitlist-form" onsubmit="event.preventDefault(); alert('Thanks! (v0 demo — wire this to your backend later)')">
+        <input type="email" placeholder="you@company.com" required>
+        <button type="submit" class="btn btn-white">Request access →</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <span class="logo">
+          <span class="logo-mark">G</span>
+          <span class="logo-text">GENESIS<span class="logo-thin">v0</span></span>
+        </span>
+        <p>AI property reconstruction. Made in Houston.</p>
+      </div>
+      <div class="footer-meta">
+        <p>© 2026 Genesis. v0 preview — not for production use yet.</p>
+        <p>Built with Three.js · Deployed on Cloudflare</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Three.js + app -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
