@@ -3,8 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Genesis — AI Blueprint to Buildable Plans</title>
-  <meta name="description" content="Genesis turns 2D blueprints into interactive, buildable 3D home models. Walk through your design before ground is broken.">
+  <title>Genesis — AI Blueprint to Interactive 3D Homes</title>
+  <meta name="description" content="Genesis turns 2D blueprints into interactive, buildable 3D home models. Walk through your design before ground is broken. Live at https://genesis-mind.com">
+  <meta name="author" content="Anndy Garcia">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Genesis">
+  <meta property="og:url" content="https://genesis-mind.com">
+  <meta property="og:title" content="Genesis — AI Blueprint to Interactive 3D Homes">
+  <meta property="og:description" content="Drop in a 2D plan. Walk through a 3D house. Estimate materials before ground is broken.">
+  <meta property="og:image" content="https://genesis-mind.com/og-image.png">
+
+  <!-- Twitter card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Genesis — AI Blueprint to Interactive 3D Homes">
+  <meta name="twitter:description" content="Drop in a 2D plan. Walk through a 3D house. Estimate materials before ground is broken.">
+
+  <!-- Canonical -->
+  <link rel="canonical" href="https://genesis-mind.com">
+
+  <!-- Favicon (matching logo G cube) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a2138'/%3E%3Ctext x='50%25' y='53%25' font-family='Inter, sans-serif' font-size='22' font-weight='800' fill='%2300d4ff' text-anchor='middle' dominant-baseline='middle'%3EG%3C/text%3E%3C/svg%3E">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -38,6 +59,10 @@
       <div class="hero-ctas">
         <a href="#demo" class="btn btn-primary btn-light">See live demo</a>
         <a href="#how" class="btn btn-secondary btn-ghost">How it works →</a>
+      </div>
+      <div class="hero-url">
+        <span class="hero-url-label">Live now</span>
+        <a href="https://genesis-mind.com" class="hero-url-link" rel="noopener">genesis-mind.com</a>
       </div>
       <div class="hero-stats">
         <div class="stat"><strong>6+</strong><span>Rooms generated</span></div>
@@ -254,9 +279,10 @@
         <h2>Building something different. Want first access?</h2>
         <p>We're letting in a small cohort of Houston builders + homeowners this quarter. Tell us about your project.</p>
       </div>
-      <form class="waitlist-form" onsubmit="event.preventDefault(); alert('Thanks! (v0 demo — wire this to your backend later)')">
-        <input type="email" placeholder="you@company.com" required>
+      <form class="waitlist-form" id="waitlist-form">
+        <input type="email" placeholder="you@company.com" required name="email">
         <button type="submit" class="btn btn-white">Request access →</button>
+        <p class="waitlist-status" id="waitlist-status" aria-live="polite"></p>
       </form>
     </div>
   </section>
@@ -267,13 +293,14 @@
       <div>
         <span class="logo">
           <span class="logo-mark">G</span>
-          <span class="logo-text">GENESIS<span class="logo-thin">v0</span></span>
+          <span class="logo-text">GENESIS</span>
         </span>
         <p>AI property reconstruction. Made in Houston.</p>
+        <p class="footer-url">Live at <a href="https://genesis-mind.com" rel="noopener">genesis-mind.com</a></p>
       </div>
       <div class="footer-meta">
-        <p>© 2026 Genesis. v0 preview — not for production use yet.</p>
-        <p>Built with Three.js · Deployed on Cloudflare</p>
+        <p>© 2026 Genesis — AI Property Reconstruction</p>
+        <p>Built with Three.js · Deployed on Cloudflare Pages</p>
       </div>
     </div>
   </footer>
@@ -288,5 +315,53 @@
   }
   </script>
   <script type="module" src="app.js"></script>
+
+  <script>
+    // Waitlist form — POST to /api/waitlist (Cloudflare Pages Function)
+    (() => {
+      const form = document.getElementById('waitlist-form');
+      const status = document.getElementById('waitlist-status');
+      if (!form) return;
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const email = (formData.get('email') || '').toString().trim();
+        if (!email) return;
+        status.textContent = 'Sending…';
+        status.className = 'waitlist-status status-pending';
+
+        try {
+          const resp = await fetch('/api/waitlist', {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify({ email }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (resp.ok && data.ok) {
+            status.textContent = `✓ ${email} added to the list. We'll be in touch.`;
+            status.className = 'waitlist-status status-ok';
+            form.reset();
+          } else {
+            status.textContent = (data.error || 'Something went wrong. Try again?');
+            status.className = 'waitlist-status status-error';
+          }
+        } catch (err) {
+          status.textContent = 'Network error. Try again.';
+          status.className = 'waitlist-status status-error';
+        }
+      });
+    })();
+
+    // Tiny visit ping (no-op for now, placeholder for analytics)
+    (() => {
+      try {
+        const data = JSON.stringify({ url: location.pathname, t: Date.now() });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/visit', data);
+        }
+      } catch {}
+    })();
+  </script>
 </body>
 </html>
