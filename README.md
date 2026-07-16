@@ -9,8 +9,8 @@ schema, the `window.GENESIS` API, and the rules for extending the codebase.
 
 ## Tests
 
-Open `tests.html` in a browser. Headless assertions on the data layer — 13
-tests, no Three.js required.
+Open `https://genesis-mind.com/tests/` in a browser. Headless assertions on
+the data layer — 13 tests, no Three.js required.
 
 ## What's here
 
