@@ -5,6 +5,21 @@
 // Cloudflare dashboard). KV persistence is added once the namespace
 // is bound via env.GENESIS_KV.
 
+// In-memory dedupe map. CF Pages Functions are isolated per-request but
+// module-level state is shared across invocations of the same isolate
+// within ~30s of activity. A 10-minute per-email quiet period prevents
+// double-submits from spamming the admin inbox.
+const RECENT = new Map(); // email -> expiry timestamp (ms)
+const DEDUPE_TTL_MS = 10 * 60 * 1000;
+
+function isDuplicate(email) {
+  const now = Date.now();
+  for (const [k, exp] of RECENT) if (exp < now) RECENT.delete(k);
+  if (RECENT.has(email)) return true;
+  RECENT.set(email, now + DEDUPE_TTL_MS);
+  return false;
+}
+
 export async function onRequestPost({ request, env }) {
   let body;
   try {
@@ -16,6 +31,14 @@ export async function onRequestPost({ request, env }) {
   const email = (body.email || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return badRequest('invalid_email');
+  }
+
+  // Dedupe double-submits / accidental refreshes
+  if (isDuplicate(email)) {
+    console.log('[waitlist] dedupe hit for', email);
+    return new Response(JSON.stringify({ ok: true, deduped: true }), {
+      status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    });
   }
 
   const entry = {
