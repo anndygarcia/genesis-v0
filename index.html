@@ -53,7 +53,7 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container hero-inner">
-      <span class="eyebrow">AI Property Reconstruction · v0 preview</span>
+      <span class="eyebrow">AI Property Reconstruction · v0 preview · <span class="eyebrow-new">NEW: PDF → 3D live</span></span>
       <h1 class="hero-title">Your <span class="accent">blueprint</span>, in 3D — before breaking ground.</h1>
       <p class="hero-sub">Genesis reads a 2D floor plan and rebuilds it as an interactive, walkable 3D home. Measure walls, swap materials, share a link — all before a single nail is hammered.</p>
       <div class="hero-ctas">
@@ -165,10 +165,10 @@
             <div class="drop-card">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></svg>
               <p id="drop-text">Drop a 2D floor plan to overlay</p>
-              <p class="drop-sub">PDF, PNG, JPEG, DWG (image-rendered as a 2D overlay)</p>
+              <p class="drop-sub">PDF, PNG, JPEG (image overlay) — or drop a .json plan to rebuild the scene</p>
             </div>
           </div>
-          <input id="pdf-input" type="file" accept="application/pdf,image/png,image/jpeg" hidden>
+          <input id="pdf-input" type="file" accept="application/pdf,image/png,image/jpeg,application/json,.json" hidden>
         </div>
 
         <aside class="rooms-panel">

@@ -100,6 +100,38 @@
       padding: 32px;
       font-size: 14px;
     }
+    .manual {
+      margin-top: 24px;
+      background: rgba(8,12,22,0.6);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 18px 22px;
+    }
+    .manual h3 { margin: 0 0 6px; }
+    .manual p { font-size: 13.5px; color: var(--text-muted); margin: 0 0 14px; }
+    .manual textarea {
+      width: 100%;
+      min-height: 88px;
+      background: rgba(0,0,0,0.3);
+      color: #e6edf3;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 10px;
+      font: 13px ui-monospace, monospace;
+      resize: vertical;
+    }
+    .manual button {
+      margin: 10px 0 0;
+      padding: 8px 16px;
+      background: var(--accent);
+      color: #001018;
+      border: 0;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .manual button:hover { background: #19e7ff; }
+    .manual #manual-table { margin-top: 16px; }
     .empty code {
       background: rgba(255,255,255,0.04);
       padding: 2px 8px;
@@ -167,6 +199,23 @@
       const emails = data.emails || [];
       const note = data.note ? `<p class="note">${data.note}</p>` : '';
 
+      // The endpoint serves a "no KV" message when KV isn't bound. In that
+      // case we ALSO surface a manual-entry form so the admin can paste
+      // signups from their inbox into this dashboard.
+      const noKV = !!data.note;
+      const manual = noKV ? `
+        <div class="manual">
+          <h3>Quick add signups from your inbox</h3>
+          <p>If you got the admin notification email, copy-paste each
+             <code>email:&nbsp;…</code> line from the Resend email body below.
+             Stored locally in your browser only — never sent anywhere.</p>
+          <textarea id="manual-input" placeholder="user@example.com, US, 2026-07-16T18:24:11Z
+other@example.com, MX, 2026-07-16T18:30:00Z"></textarea>
+          <button id="manual-save">Save locally</button>
+          <table id="manual-table"></table>
+        </div>
+      ` : '';
+
       root.innerHTML = `
         <div class="stats-row">
           <div class="stat-card"><span class="label">Emails</span><span class="value">${emails.length}</span></div>
@@ -205,12 +254,48 @@
             </table>
           `}
         </div>
+        ${manual}
       `;
+
+      if (noKV) wireManual();
     })
     .catch(err => {
       document.getElementById('root').innerHTML =
         `<div class="panel err">Failed to load stats: ${escapeHTML(err.message)}</div>`;
     });
+
+  function wireManual() {
+    const input = document.getElementById('manual-input');
+    const btn   = document.getElementById('manual-save');
+    const table = document.getElementById('manual-table');
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem('genesis_manual_signups') || '[]'); }
+      catch { return []; }
+    }
+    function save(rows) {
+      localStorage.setItem('genesis_manual_signups', JSON.stringify(rows));
+    }
+    function render(rows) {
+      if (!rows.length) { table.innerHTML = ''; return; }
+      table.innerHTML = `<thead><tr><th>Email</th><th>Country</th><th>Time</th></tr></thead><tbody>${
+        rows.slice().reverse().map(r => `<tr><td>${escapeHTML(r.email)}</td><td class="meta">${escapeHTML(r.country||'')}</td><td class="meta">${escapeHTML(r.ts)}</td></tr>`).join('')
+      }</tbody>`;
+    }
+    btn.addEventListener('click', () => {
+      const lines = input.value.split('\n').map(s => s.trim()).filter(Boolean);
+      const rows = load();
+      for (const line of lines) {
+        const parts = line.split(',').map(s => s.trim());
+        if (!parts[0]) continue;
+        rows.push({ email: parts[0], country: parts[1] || '', ts: parts[2] || new Date().toISOString() });
+      }
+      save(rows);
+      input.value = '';
+      render(rows);
+    });
+    render(load());
+  }
 
   function escapeHTML(s) {
     return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));

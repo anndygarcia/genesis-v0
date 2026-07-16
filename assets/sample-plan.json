@@ -1,0 +1,25 @@
+{
+  "name": "Cozy starter",
+  "planNumber": 1,
+  "rooms": [
+    { "name": "Bedroom 1",  "x": 0,  "z": 0, "w": 14, "d": 12, "height": 9, "color": "#7c5cff" },
+    { "name": "Bedroom 2",  "x": 16, "z": 0, "w": 12, "d": 12, "height": 9, "color": "#5cb8ff" },
+    { "name": "Bath",       "x": 30, "z": 0, "w": 8,  "d": 6,  "height": 9, "color": "#5cf2ff" },
+    { "name": "Living",     "x": 0,  "z": 14, "w": 24, "d": 14, "height": 9, "color": "#ff8c5c" },
+    { "name": "Kitchen",    "x": 26, "z": 14, "w": 14, "d": 14, "height": 9, "color": "#5cffb4" }
+  ],
+  "doors": [
+    { "x": 13, "z": 5,  "w": 3, "host": "Bedroom 1" },
+    { "x": 24, "z": 5,  "w": 3, "host": "Bedroom 2" },
+    { "x": 28, "z": 7,  "w": 3, "host": "Bath" },
+    { "x": 13, "z": 18, "w": 3, "host": "Living" },
+    { "x": 25, "z": 18, "w": 3, "host": "Kitchen" }
+  ],
+  "windows": [
+    { "x": 7,  "z": 0,  "w": 4, "host": "Bedroom 1" },
+    { "x": 22, "z": 0,  "w": 4, "host": "Bedroom 2" },
+    { "x": 34, "z": 3,  "w": 3, "host": "Bath" },
+    { "x": 7,  "z": 28, "w": 4, "host": "Living" },
+    { "x": 33, "z": 28, "w": 4, "host": "Kitchen" }
+  ]
+}

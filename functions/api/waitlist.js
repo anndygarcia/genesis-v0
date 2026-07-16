@@ -107,6 +107,7 @@ async function notifyAdmin(entry, env) {
 
 async function sendAutoresponder(email, env) {
   const subject = "You're on the Genesis list";
+  const unsubUrl = `https://genesis-mind.com/api/unsubscribe?email=${encodeURIComponent(email)}`;
   const text = [
     `Hi,`,
     '',
@@ -119,6 +120,9 @@ async function sendAutoresponder(email, env) {
     '',
     `--`,
     `genesis-mind.com · AI Blueprint to Interactive 3D Homes`,
+    '',
+    `If this is not your address, or you'd rather not hear from us,`,
+    `unsubscribe: ${unsubUrl}`,
   ].join('\n');
   return sendEmail(env, email, subject, text);
 }
