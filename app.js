@@ -1601,6 +1601,172 @@ document.getElementById('btn-est-csv').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------
+//   PDF / IMAGE DROP — overlay as 2D texture on the slab
+//   First v1.0 milestone: a real user-provided floor plan, rendered
+//   as a 2D overlay on the slab. Lights up the upload UX end-to-end.
+//
+//   Uses pdfjs-dist (Mozilla's pdf.js) from a CDN — loaded only when
+//   the user actually clicks the upload button, so it doesn't bloat
+//   the initial page load.
+// ------------------------------------------------------------
+let PLAN_OVERLAY_MESH = null;        // current plane on slab (if any)
+let PLAN_TEX = null;                  // current CanvasTexture
+let pdfjsLib = null;                  // lazy-loaded
+
+async function ensurePdfJs() {
+  if (pdfjsLib) return pdfjsLib;
+  // pdfjs-dist prebuilt ESM
+  const url = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.mjs';
+  const workerUrl = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.mjs';
+  pdfjsLib = await import(url);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+  return pdfjsLib;
+}
+
+async function rasterizePdf(file) {
+  await ensurePdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(1);                 // first page only
+  const targetWidthPx = Math.min(2048, window.devicePixelRatio > 1 ? 1800 : 1500);
+  const viewport = page.getViewport({ scale: 1 });
+  const scale = targetWidthPx / viewport.width;
+  const vp = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return { canvas, pageCount: pdf.numPages };
+}
+
+async function rasterizeImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 2200;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve({ canvas: c, pageCount: 1 });
+    };
+    img.onerror = e => { URL.revokeObjectURL(url); reject(new Error('Image decode failed')); };
+    img.src = url;
+  });
+}
+
+function placePlanTexture(canvas) {
+  if (PLAN_OVERLAY_MESH) {
+    scene.remove(PLAN_OVERLAY_MESH);
+    PLAN_OVERLAY_MESH.geometry.dispose();
+    if (PLAN_TEX) PLAN_TEX.dispose();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  tex.needsUpdate = true;
+  PLAN_TEX = tex;
+
+  // Match slab footprint (FOOTPRINT_W x FOOTPRINT_D)
+  const aspect = canvas.width / canvas.height;
+  // Pick a target aspect to fit
+  const FOOT_W = FOOTPRINT_W * 0.95;
+  const FOOT_D = FOOTPRINT_D * 0.95;
+  let planeW = FOOT_W;
+  let planeH = FOOT_W / aspect;
+  if (planeH > FOOT_D) {
+    planeH = FOOT_D;
+    planeW = FOOT_D * aspect;
+  }
+
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.85,
+    roughness: 0.9,
+    metalness: 0.0,
+    side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -2,
+  });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), mat);
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(FOOTPRINT_W / 2, 0.02, FOOTPRINT_D / 2);
+  plane.userData.exportable = false;
+  PLAN_OVERLAY_MESH = plane;
+  scene.add(plane);
+  document.getElementById('btn-clear-plan').classList.remove('hidden');
+}
+
+function clearPlanTexture() {
+  if (PLAN_OVERLAY_MESH) {
+    scene.remove(PLAN_OVERLAY_MESH);
+    PLAN_OVERLAY_MESH.geometry.dispose();
+    PLAN_OVERLAY_MESH = null;
+  }
+  if (PLAN_TEX) { PLAN_TEX.dispose(); PLAN_TEX = null; }
+  document.getElementById('btn-clear-plan').classList.add('hidden');
+}
+
+async function handleUploadedFile(file) {
+  const overlay = document.getElementById('drop-overlay');
+  const dropText = document.getElementById('drop-text');
+  overlay.classList.remove('hidden');
+  dropText.textContent = `Processing ${file.name} (${(file.size / 1024).toFixed(1)} kB)…`;
+  try {
+    let res;
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      res = await rasterizePdf(file);
+    } else if (file.type.startsWith('image/')) {
+      res = await rasterizeImage(file);
+    } else {
+      throw new Error('Unsupported file type. Use PDF, PNG, or JPEG.');
+    }
+    placePlanTexture(res.canvas);
+    document.getElementById('demo-title').textContent =
+      `${file.name} · Plan #1 (${res.pageCount} page${res.pageCount === 1 ? '' : 's'})`;
+    dropText.textContent = `✓ ${file.name} loaded`;
+    setTimeout(() => overlay.classList.add('hidden'), 600);
+  } catch (err) {
+    console.error('Plan upload failed', err);
+    dropText.textContent = `Failed: ${err.message}`;
+    setTimeout(() => overlay.classList.add('hidden'), 1800);
+  }
+}
+
+document.getElementById('btn-upload').addEventListener('click', () => {
+  document.getElementById('pdf-input').click();
+});
+document.getElementById('pdf-input').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) handleUploadedFile(f);
+  e.target.value = ''; // allow re-picking same file
+});
+document.getElementById('btn-clear-plan').addEventListener('click', () => {
+  clearPlanTexture();
+  document.getElementById('demo-title').textContent = 'Sample Home · Plan #1';
+});
+
+// Drag/drop on the entire viewer
+const viewerEl = document.getElementById('three-canvas').parentElement;
+viewerEl.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('drop-overlay').classList.remove('hidden'); });
+viewerEl.addEventListener('dragleave', e => {
+  // Only hide if leaving the viewer entirely
+  if (!viewerEl.contains(e.relatedTarget)) {
+    document.getElementById('drop-overlay').classList.add('hidden');
+  }
+});
+viewerEl.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.add('hidden');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) handleUploadedFile(f);
+});
+
+// ------------------------------------------------------------
 //   RENDER LOOP
 // ------------------------------------------------------------
 const clock = new THREE.Clock();
