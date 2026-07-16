@@ -103,3 +103,5 @@ git push --force-with-lease origin main
 ```
 
 The pre-commit hook + the absence of any hardcoded keys in the current tree guarantee this stays handled going forward.
+
+<!-- v0.8.3: admin key rotation deploy -->
