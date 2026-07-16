@@ -7,6 +7,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+
+// Genesis v0.5 — PBR materials, HDR env, shadows + SSAO, procedural trim,
+// measurement tool, estimator, GLB export.
 
 // ------------------------------------------------------------
 //   FLOOR PLAN DATA
@@ -103,6 +113,7 @@ scene.background = new THREE.Color(0x101722);
 scene.fog = new THREE.Fog(0x101722, 60, 180);
 
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+// High isometric 3/4 view — sees walls + roof + (through windows) room interiors
 camera.position.set(34, 28, 38);
 camera.lookAt(23, 4, 15);
 
@@ -114,6 +125,11 @@ labelRenderer.domElement.style.top = '0';
 labelRenderer.domElement.style.left = '0';
 labelRenderer.domElement.style.pointerEvents = 'none';
 canvas.parentElement.appendChild(labelRenderer.domElement);
+
+// ------------------------------------------------------------
+//   INTERACTABLES — meshes the user can click for measurement
+// ------------------------------------------------------------
+const INTERACTABLE = [];
 
 // ------------------------------------------------------------
 //   LIGHTING
@@ -132,11 +148,54 @@ sun.shadow.camera.bottom = -10;
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 200;
 sun.shadow.bias = -0.0005;
+sun.shadow.radius = 4;                    // soft shadows
 scene.add(sun);
 
 const fillLight = new THREE.DirectionalLight(0x88aaff, 0.35);
 fillLight.position.set(-30, 20, -10);
 scene.add(fillLight);
+
+// ------------------------------------------------------------
+//   HDR ENVIRONMENT — RoomEnvironment via PMREMGenerator
+//   This is a real PBR environment, NOT a flat color. It drives
+//   reflections, indirect light, and adds realism to every material.
+// ------------------------------------------------------------
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+const envRT = pmrem.fromScene(new RoomEnvironment(renderer), 0.04);
+scene.environment = envRT.texture;
+// Note: NOT setting scene.background — we keep the dark sky for the demo look
+
+// ------------------------------------------------------------
+//   POST-PROCESSING — SSAO for ambient occlusion + outline for
+//   measurement hover/select highlights
+// ------------------------------------------------------------
+const composer = new EffectComposer(renderer);
+composer.setSize(canvas.parentElement.clientWidth, canvas.parentElement.clientHeight);
+composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const ssaoPass = new SSAOPass(scene, camera, canvas.parentElement.clientWidth, canvas.parentElement.clientHeight);
+ssaoPass.kernelRadius = 8;
+ssaoPass.minDistance = 0.001;
+ssaoPass.maxDistance = 0.05;
+composer.addPass(ssaoPass);
+
+const outlinePass = new OutlinePass(
+  new THREE.Vector2(canvas.parentElement.clientWidth, canvas.parentElement.clientHeight),
+  scene, camera
+);
+outlinePass.edgeStrength = 6;
+outlinePass.edgeThickness = 1.5;
+outlinePass.edgeGlow = 0.4;
+outlinePass.visibleEdgeColor.set('#00d4ff');  // cyan accent matching brand
+outlinePass.hiddenEdgeColor.set('#003344');
+composer.addPass(outlinePass);
+
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
 
 // ------------------------------------------------------------
 //   GROUND
@@ -168,34 +227,228 @@ scene.add(ground);
 // ------------------------------------------------------------
 //   SLAB / FLOOR
 // ------------------------------------------------------------
-const slabMat = new THREE.MeshStandardMaterial({ color: 0xc9c4ba, roughness: 0.85, metalness: 0.0 });
+// Procedural concrete texture: noise-based so it doesn't look like a flat color
+function makeConcreteTexture(size = 512) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // base
+  ctx.fillStyle = '#b8b3a8'; ctx.fillRect(0, 0, size, size);
+  // stains / variation
+  for (let i = 0; i < 4000; i++) {
+    const x = Math.random() * size, y = Math.random() * size;
+    const r = Math.random() * 1.4;
+    const a = Math.random() * 0.18;
+    ctx.fillStyle = `rgba(${80 + Math.random()*60},${76 + Math.random()*50},${60 + Math.random()*40},${a})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  }
+  // hairline crack-like lines
+  ctx.strokeStyle = 'rgba(40,38,32,0.18)';
+  ctx.lineWidth = 0.6;
+  for (let i = 0; i < 80; i++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random()*size, Math.random()*size);
+    ctx.lineTo(Math.random()*size, Math.random()*size);
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4, 4);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const concreteTex = makeConcreteTexture(512);
+const slabMat = new THREE.MeshStandardMaterial({
+  map: concreteTex,
+  roughness: 0.92,
+  metalness: 0.02,
+  envMapIntensity: 0.4,
+});
 const slabGeo = new THREE.BoxGeometry(FOOTPRINT_W, FLOOR_T, FOOTPRINT_D);
 const slab = new THREE.Mesh(slabGeo, slabMat);
 slab.position.set(FOOTPRINT_W/2, -FLOOR_T/2, FOOTPRINT_D/2);
 slab.receiveShadow = true;
 scene.add(slab);
 
+// Procedural wood-floor texture (planks)
+function makeWoodTexture(w = 256, h = 256) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#a87742'; ctx.fillRect(0, 0, w, h);
+  const plank = 32;
+  for (let py = 0; py < h; py += plank) {
+    for (let px = 0; px < w; px += plank) {
+      const xOff = (py / plank) % 2 ? plank/2 : 0;  // stagger
+      ctx.fillStyle = `rgba(${130 + Math.random()*40}, ${88 + Math.random()*30}, ${50 + Math.random()*20}, 0.6)`;
+      ctx.fillRect(px + xOff, py, plank - 1, plank - 1);
+      // grain
+      ctx.strokeStyle = `rgba(60, 38, 18, 0.18)`;
+      for (let g = 0; g < 5; g++) {
+        ctx.beginPath();
+        ctx.moveTo(px + xOff, py + Math.random() * plank);
+        ctx.lineTo(px + xOff + plank, py + Math.random() * plank);
+        ctx.stroke();
+      }
+      // seam
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath(); ctx.moveTo(px + xOff + plank, py);
+      ctx.lineTo(px + xOff + plank, py + plank); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px + xOff, py + plank);
+      ctx.lineTo(px + xOff + plank, py + plank); ctx.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const woodTex = makeWoodTexture();
+
+// Procedural tile texture (12" squares)
+function makeTileTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e8e4dc'; ctx.fillRect(0, 0, size, size);
+  const tile = 64;
+  for (let py = 0; py < size; py += tile) {
+    for (let px = 0; px < size; px += tile) {
+      ctx.fillStyle = `rgba(${200 + Math.random()*30},${194 + Math.random()*30},${180 + Math.random()*30},0.9)`;
+      ctx.fillRect(px + 2, py + 2, tile - 4, tile - 4);
+      ctx.strokeStyle = 'rgba(120,110,90,0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(px + 2, py + 2, tile - 4, tile - 4);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const tileTex = makeTileTexture();
+
+// Procedural carpet (soft, low-frequency)
+function makeCarpetTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#c2a787'; ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 8000; i++) {
+    ctx.fillStyle = `rgba(${180 + Math.random()*30},${150 + Math.random()*30},${110 + Math.random()*30},0.7)`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1.5, 1.5);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const carpetTex = makeCarpetTexture();
+
+// Per-room floor material — keep the colors VIBRANT (the room-color tiles
+// are the strongest visual identity of this demo), but use PBR so reflections
+// from the HDR envmap show through, and SSAO darkens the corners.
+function floorForRoom(room) {
+  // Highlighting with emissive so colors stay vivid even under AO darkening
+  return new THREE.MeshStandardMaterial({
+    color: room.color,
+    roughness: 0.7,
+    metalness: 0.0,
+    envMapIntensity: 0.35,
+    emissive: room.color,
+    emissiveIntensity: 0.18,
+  });
+}
+
 // Room floor tiles (slightly raised so each room reads as its own)
 ROOMS.forEach((room) => {
-  const mat = new THREE.MeshStandardMaterial({
-    color: room.color, roughness: 0.85, metalness: 0.0
-  });
+  const mat = floorForRoom(room);
   const geo = new THREE.BoxGeometry(room.w - 0.05, 0.02, room.d - 0.05);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(room.x + room.w/2, 0.01, room.z + room.d/2);
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
+  mesh.position.set(room.x + room.w/2, 0.01, room.z + room.d/2);
+  mesh.name = `floor-${room.id}`;
+  mesh.userData.kind = 'floor';
+  mesh.userData.roomId = room.id;
+  INTERACTABLE.push(mesh);
   scene.add(mesh);
 });
 
 // ------------------------------------------------------------
-//   WALL HELPER
+//   WALL HELPER — PBR + baseboards + crown molding
 // ------------------------------------------------------------
-const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2eee5, roughness: 0.85, metalness: 0.0 });
-const wallMatInterior = new THREE.MeshStandardMaterial({ color: 0xece4d3, roughness: 0.85, metalness: 0.0 });
-const trimMat = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.5, metalness: 0.0 });
+// Procedural sheetrock texture (subtle stipple)
+function makeSheetrockTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f2eee5'; ctx.fillRect(0, 0, size, size);
+  // subtle stipple
+  for (let i = 0; i < 6000; i++) {
+    const v = 220 + Math.random() * 30;
+    ctx.fillStyle = `rgba(${v},${v-4},${v-12},0.55)`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1.4, 1.4);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const sheetrockTex = makeSheetrockTexture();
 
-function addWall(ax, az, aw, ad) {  // axis-aligned wall as a 0.5ft thick box
-  const isOuter = (
+// Wood-grain texture for trim/baseboards (lighter than floor)
+function makeTrimTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#4a3a2c'; ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 200; i++) {
+    ctx.strokeStyle = `rgba(28, 20, 12, ${0.15 + Math.random() * 0.3})`;
+    ctx.lineWidth = 0.5 + Math.random();
+    ctx.beginPath();
+    ctx.moveTo(0, Math.random() * size);
+    ctx.bezierCurveTo(
+      size * 0.33, Math.random() * size,
+      size * 0.66, Math.random() * size,
+      size, Math.random() * size
+    );
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const trimTex = makeTrimTexture();
+const baseboardMat = new THREE.MeshStandardMaterial({
+  map: trimTex,
+  color: 0xffffff,
+  roughness: 0.55,
+  metalness: 0.05,
+  envMapIntensity: 0.7,
+});
+const crownMat = new THREE.MeshStandardMaterial({
+  map: trimTex,
+  color: 0xffffff,
+  roughness: 0.5,
+  metalness: 0.08,
+  envMapIntensity: 0.8,
+});
+const wallMat = new THREE.MeshStandardMaterial({
+  map: sheetrockTex.clone(),
+  color: 0xe6dfd0,                 // warm white sheetrock
+  roughness: 0.95,
+  metalness: 0.0,
+  envMapIntensity: 0.25,
+});
+const wallMatInterior = new THREE.MeshStandardMaterial({
+  map: sheetrockTex.clone(),
+  color: 0xf3eadd,                 // slightly cooler interior
+  roughness: 0.95,
+  metalness: 0.0,
+  envMapIntensity: 0.2,
+});
+
+// Wall inventory collected for the measurement tool
+const WALL_MESHES = [];
+
+function addWall(ax, az, aw, ad, isOuter = null) {
+  if (isOuter === null) isOuter = (
     (ax === 0) || (ax + aw === FOOTPRINT_W) ||
     (az === 0) || (az + ad === FOOTPRINT_D)
   );
@@ -205,22 +458,77 @@ function addWall(ax, az, aw, ad) {  // axis-aligned wall as a 0.5ft thick box
   mesh.position.set(ax + aw/2, WALL_H/2, az + ad/2);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  mesh.name = isOuter ? `wall-outer-${ax}-${az}` : `wall-inner-${ax}-${az}`;
+  mesh.userData = {
+    kind: 'wall',
+    isOuter,
+    length: Math.max(aw, ad),
+    height: WALL_H,
+    area: Math.max(aw, ad) * WALL_H * 2,    // both sides
+    ax, az, aw, ad,
+  };
+  WALL_MESHES.push(mesh);
+  INTERACTABLE.push(mesh);
   scene.add(mesh);
 
-  // Trim along the top
-  const trimGeo = new THREE.BoxGeometry(aw, 0.15, ad);
-  const trim = new THREE.Mesh(trimGeo, trimMat);
-  trim.position.set(ax + aw/2, WALL_H - 0.075, az + ad/2);
-  scene.add(trim);
+  // Baseboard — 4" tall, 0.25" thick, hugging the bottom of the wall
+  const BASEB_H = 0.35;
+  const BASEB_D = 0.05;
+  let baseX, baseZ, baseW, baseD;
+  if (aw > ad) {
+    // Horizontal wall (runs along X)
+    baseX = ax + aw/2; baseZ = az + (ad - BASEB_D)/2;
+    baseW = aw; baseD = BASEB_D;
+  } else {
+    // Vertical wall (runs along Z)
+    baseX = ax + (aw - BASEB_D)/2; baseZ = az + ad/2;
+    baseW = BASEB_D; baseD = ad;
+  }
+  const baseboard = new THREE.Mesh(
+    new THREE.BoxGeometry(baseW, BASEB_H, baseD),
+    baseboardMat
+  );
+  baseboard.position.set(baseX, BASEB_H/2, baseZ);
+  baseboard.castShadow = true;
+  baseboard.receiveShadow = true;
+  scene.add(baseboard);
+
+  // Crown molding — at the top, slightly inset, 5" tall, 1" deep
+  const CROWN_H = 0.45;
+  const CROWN_D = 0.1;
+  let cX, cZ, cW, cD, cY;
+  if (aw > ad) {
+    cX = ax + aw/2; cZ = az + (ad - CROWN_D)/2;
+    cW = aw; cD = CROWN_D;
+    cY = WALL_H - CROWN_H/2;
+  } else {
+    cX = ax + (aw - CROWN_D)/2; cZ = az + ad/2;
+    cW = CROWN_D; cD = ad;
+    cY = WALL_H - CROWN_H/2;
+  }
+  const crown = new THREE.Mesh(
+    new THREE.BoxGeometry(cW, CROWN_H, cD),
+    crownMat
+  );
+  crown.position.set(cX, cY, cZ);
+  crown.castShadow = true;
+  crown.receiveShadow = true;
+  scene.add(crown);
 
   return mesh;
 }
 
-// Outer walls
-addWall(0,             0,              FOOTPRINT_W, WALL_T); // south
-addWall(0,             FOOTPRINT_D - WALL_T, FOOTPRINT_W, WALL_T); // north
-addWall(0,             0,              WALL_T, FOOTPRINT_D); // west
-addWall(FOOTPRINT_W - WALL_T, 0,       WALL_T, FOOTPRINT_D); // east
+// Track all wall meshes added (for measurement + estimator)
+const addedWalls = [];
+
+// Outer walls (explicit isOuter=true)
+addWall(0,             0,              FOOTPRINT_W, WALL_T, true); // south
+addWall(0,             FOOTPRINT_D - WALL_T, FOOTPRINT_W, WALL_T, true); // north
+addWall(0,             0,              WALL_T, FOOTPRINT_D, true); // west
+addWall(FOOTPRINT_W - WALL_T, 0,       WALL_T, FOOTPRINT_D, true); // east
+
+// Track them
+addedWalls.push(...WALL_MESHES.slice());
 
 // Interior walls — re-derive from ROOMS adjacency map (re-using computeStats logic)
 const interiorWalls = [];
@@ -262,7 +570,7 @@ for (let i = 0; i < ROOMS.length; i++) {
     }
   }
 }
-interiorWalls.forEach(w => addWall(w.ax, w.az, w.aw, w.ad));
+interiorWalls.forEach(w => addWall(w.ax, w.az, w.aw, w.ad, false));
 
 // ------------------------------------------------------------
 //   DOORS
@@ -308,6 +616,9 @@ function addDoor(d) {
     plank.rotation.y = -Math.PI/2 + THREE.MathUtils.degToRad(-20);
   }
   plank.castShadow = true;
+  plank.userData = { kind: 'door', w: d.w, label: d.label, isExterior: d.kind === 'exterior' };
+  plank.name = `door-${d.label.toLowerCase().replace(/\s+/g, '-')}`;
+  INTERACTABLE.push(plank);
   scene.add(plank);
 }
 DOORS.forEach(addDoor);
@@ -317,36 +628,48 @@ DOORS.forEach(addDoor);
 //   Frame + dark glass pane (slightly inset)
 // ------------------------------------------------------------
 function addWindow(w) {
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x88c4ff,
-    roughness: 0.05,
-    metalness: 0.6,
+  // PBR glass — high reflectivity, smooth
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xaad8ff,
+    roughness: 0.02,
+    metalness: 0.0,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.55,
+    transmission: 0.7,           // PBR transmission (requires physical material)
+    ior: 1.45,
+    envMapIntensity: 1.5,
   });
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 0.4 });
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0xe8e2d4,
+    roughness: 0.5,
+    metalness: 0.05,
+  });
+  let glass, frame, sill;
   if (w.axis === 'z') {
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4, 0.05), glassMat);
+    glass = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4, 0.05), glassMat);
     glass.position.set(w.x, 5, w.z);
     scene.add(glass);
-    const f = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4.2, WALL_T * 1.05), frameMat);
-    f.position.set(w.x, 5, w.z);
-    scene.add(f);
-    // sill
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.3, 0.15, 0.6), trimMat);
+    frame = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4.2, WALL_T * 1.05), frameMat);
+    frame.position.set(w.x, 5, w.z);
+    scene.add(frame);
+    sill = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.3, 0.15, 0.6), crownMat);
     sill.position.set(w.x, 2.9, w.z);
     scene.add(sill);
   } else {
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 4, w.w), glassMat);
+    glass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 4, w.w), glassMat);
     glass.position.set(w.z, 5, w.x);
     scene.add(glass);
-    const f = new THREE.Mesh(new THREE.BoxGeometry(WALL_T * 1.05, 4.2, w.w), frameMat);
-    f.position.set(w.z, 5, w.x);
-    scene.add(f);
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.15, w.w + 0.3), trimMat);
+    frame = new THREE.Mesh(new THREE.BoxGeometry(WALL_T * 1.05, 4.2, w.w), frameMat);
+    frame.position.set(w.z, 5, w.x);
+    scene.add(frame);
+    sill = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.15, w.w + 0.3), crownMat);
     sill.position.set(w.z, 2.9, w.x);
     scene.add(sill);
   }
+  // Make glass clickable (use the glass mesh as the representer)
+  glass.userData = { kind: 'window', w: w.w, label: w.label };
+  glass.name = `window-${w.label.toLowerCase().replace(/\s+/g, '-')}`;
+  INTERACTABLE.push(glass);
 }
 WINDOWS.forEach(addWindow);
 
@@ -365,6 +688,40 @@ scene.add(ceiling);
 // ------------------------------------------------------------
 //   ROOF — gable
 // ------------------------------------------------------------
+// Procedural asphalt shingle texture
+function makeShingleTexture(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // dark base
+  ctx.fillStyle = '#3d2a1c'; ctx.fillRect(0, 0, size, size);
+  // overlapping shingles (rows offset)
+  const rows = 16;
+  const shingleH = size / rows;
+  for (let r = 0; r < rows; r++) {
+    const yOff = r * shingleH;
+    const xStagger = (r % 2) * (size / 2);
+    for (let x = -size/2; x < size + size/2; x += size / 4) {
+      // 4 shingles per row, half-width each so they overlap
+      const baseX = x + xStagger;
+      // gradient shingle (lighter at top, darker at bottom)
+      const grad = ctx.createLinearGradient(0, yOff, 0, yOff + shingleH);
+      grad.addColorStop(0, `rgba(${90 + Math.random()*30}, ${56 + Math.random()*20}, ${32 + Math.random()*15}, 0.95)`);
+      grad.addColorStop(1, `rgba(${30 + Math.random()*15}, ${18 + Math.random()*10}, ${10 + Math.random()*8}, 0.95)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(baseX, yOff, size / 4 + 4, shingleH + 0.5);
+      // shadow line at bottom
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(baseX, yOff + shingleH - 1, size / 4 + 4, 2);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 4);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const shingleTex = makeShingleTexture();
+
 function makeGable() {
   const halfSpan = FOOTPRINT_W / 2;
   const ridgeY = WALL_H + ROOF_PITCH;
@@ -390,18 +747,41 @@ function makeGable() {
   geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
+  // Double-sided so we can also see the roof from inside if camera enters
   return new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({ color: 0x4a4035, roughness: 0.6 })
+    new THREE.MeshStandardMaterial({
+      map: shingleTex,
+      color: 0x6b4632,
+      roughness: 0.85,
+      metalness: 0.0,
+      envMapIntensity: 0.5,
+      side: THREE.DoubleSide,
+      transparent: false,
+    })
   );
 }
 const roof = makeGable();
 roof.castShadow = true;
 roof.receiveShadow = true;
+roof.name = 'roof';
+roof.userData = {
+  kind: 'roof',
+  area: 2 * FOOTPRINT_D * Math.sqrt(Math.pow(FOOTPRINT_W/2, 2) + Math.pow(ROOF_PITCH, 2)),
+  pitchRise: ROOF_PITCH,
+  pitchRun: FOOTPRINT_W / 2,
+};
+INTERACTABLE.push(roof);
 scene.add(roof);
 
-// Roof trim along the gable ends (triangular fronts)
-const gableMat = new THREE.MeshStandardMaterial({ color: 0xebe0d0, roughness: 0.9 });
+// Gable ends (triangle facias): same sheetrock PBR
+const gableMat = new THREE.MeshStandardMaterial({
+  map: sheetrockTex.clone(),
+  color: 0xebe0d0,
+  roughness: 0.95,
+  metalness: 0.0,
+  envMapIntensity: 0.3,
+});
 {
   // South gable
   const sGeo = new THREE.BufferGeometry();
@@ -492,7 +872,9 @@ function makeLabel(room) {
   el.className = 'room-label';
   el.innerHTML = `<span class="rl-name">${room.name}</span><span class="rl-area">${room.w * room.d} sq ft</span>`;
   const obj = new CSS2DObject(el);
-  obj.position.set(room.x + room.w/2, WALL_H + 0.4, room.z + room.d/2);
+  // Place the label at the floor level (y=0.1) so it always floats just above the room
+  // and is clearly visible from any orbit angle (including looking down at the roof)
+  obj.position.set(room.x + room.w/2, 0.1, room.z + room.d/2);
   obj.userData.roomId = room.id;
   return obj;
 }
@@ -558,7 +940,7 @@ function enterOrbit() {
   walkState.active = false;
   document.exitPointerLock();
   orbit.enabled = true;
-  // Re-aim at the house
+  // Re-aim at the house — high 3/4 isometric (back to v0.1 view)
   orbit.target.set(23, 4, 15);
   camera.position.set(34, 28, 38);
   btnOrbit.classList.add('active'); btnWalk.classList.remove('active');
@@ -628,6 +1010,8 @@ function resize() {
   const h = canvas.parentElement.clientHeight;
   if (w === 0 || h === 0) return;
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  ssaoPass.setSize(w, h);
   labelRenderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -635,6 +1019,243 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
 resize();
+
+// ------------------------------------------------------------
+//   MEASUREMENT TOOL + ESTIMATOR + GLB EXPORT
+// ------------------------------------------------------------
+// Click any wall, floor, roof, door, or window to see live measurements.
+// The element gets a cyan outline (OutlinePass), and a small panel
+// at top-right of the viewer shows the read-out.
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hoverTarget = null;
+let selectedTarget = null;
+const measurePanel = document.getElementById('measure-panel');
+const measureTitle = document.getElementById('measure-title');
+const measureStats = document.getElementById('measure-stats');
+const measureHint = document.getElementById('measure-hint');
+
+function setPointerFromEvent(ev) {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function describeTarget(mesh) {
+  const u = mesh.userData;
+  if (!u || !u.kind) return null;
+
+  if (u.kind === 'wall') {
+    return {
+      title: u.isOuter ? 'Exterior Wall' : 'Interior Wall',
+      rows: [
+        ['Length',  `${u.length.toFixed(1)} ft`],
+        ['Height',  `${u.height.toFixed(1)} ft`],
+        ['Both sides area', `${u.area.toFixed(0)} sq ft`],
+        ['Drywall', `~${(u.area * 0.95).toFixed(0)} sq ft (${u.isOuter ? '2 sides incl. exterior wrap' : '2 sides'})`],
+      ],
+    };
+  }
+  if (u.kind === 'floor') {
+    const room = ROOMS.find(r => r.id === u.roomId);
+    return {
+      title: `Floor — ${room?.name || 'Room'}`,
+      rows: [
+        ['Dimensions', `${room?.w}' × ${room?.d}'`],
+        ['Area', `${(room?.w * room?.d).toFixed(0)} sq ft`],
+        ['Flooring', `${room?.id === 'kitchen' || room?.id === 'bath' ? 'Tile' : room?.id?.startsWith('bed') || room?.id === 'master' ? 'Carpet' : 'Wood'}`],
+      ],
+    };
+  }
+  if (u.kind === 'roof') {
+    const pitch = u.pitchRise / u.pitchRun;
+    const pitchRatio = `${u.pitchRise}\"/${u.pitchRun * 12}\"  (~${(pitch * 12).toFixed(1)}:12)`;
+    return {
+      title: 'Roof',
+      rows: [
+        ['Total area', `${u.area.toFixed(0)} sq ft`],
+        ['Pitch', pitchRatio],
+        ['Squares (10×10)', `${(u.area / 100).toFixed(1)}`],
+        ['Shingles (bundles)', `${Math.ceil(u.area / 33.33)}`],
+      ],
+    };
+  }
+  if (u.kind === 'door') {
+    return {
+      title: `Door — ${u.label}`,
+      rows: [
+        ['Width',  `${u.w}' (${(u.w * 12).toFixed(0)}")`],
+        ['Height', '7\' 0" (typical interior)'],
+        ['Type',   u.kind === 'exterior' ? 'Exterior' : 'Interior'],
+        ['Frame',  `~${(u.w * 2 + 14).toFixed(1)} ft lumber`],
+      ],
+    };
+  }
+  if (u.kind === 'window') {
+    return {
+      title: `Window — ${u.label}`,
+      rows: [
+        ['Width',  `${u.w}' (${(u.w * 12).toFixed(0)}")`],
+        ['Height', '4\' 0"'],
+        ['Glass area', `${(u.w * 4).toFixed(1)} sq ft`],
+      ],
+    };
+  }
+  return null;
+}
+
+function showMeasureFor(mesh) {
+  const info = describeTarget(mesh);
+  if (!info) return;
+  measurePanel.classList.add('visible');
+  measureTitle.textContent = info.title;
+  measureStats.innerHTML = info.rows.map(([k, v]) =>
+    `<div class="mp-row"><span>${k}</span><strong>${v}</strong></div>`
+  ).join('');
+}
+
+function hideMeasure() {
+  if (!selectedTarget) {
+    measurePanel.classList.remove('visible');
+  }
+}
+
+// Hover highlighting (works in orbit mode only)
+canvas.addEventListener('pointermove', (ev) => {
+  if (walkState.active) return;
+  setPointerFromEvent(ev);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(INTERACTABLE, true);
+  const mesh = hits[0]?.object;
+  if (mesh !== hoverTarget) {
+    hoverTarget = mesh;
+    updateOutline();
+  }
+});
+
+canvas.addEventListener('click', (ev) => {
+  if (walkState.active) return;
+  setPointerFromEvent(ev);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(INTERACTABLE, true);
+  if (hits.length === 0) {
+    selectedTarget = null;
+    outlinePass.selectedObjects = [];
+    measurePanel.classList.remove('visible');
+    return;
+  }
+  selectedTarget = hits[0].object;
+  updateOutline();
+  showMeasureFor(selectedTarget);
+});
+
+function updateOutline() {
+  const targets = [];
+  if (selectedTarget) targets.push(selectedTarget);
+  else if (hoverTarget) targets.push(hoverTarget);
+  outlinePass.selectedObjects = targets;
+}
+
+// ------------------------------------------------------------
+//   ESTIMATOR — recompute when the scene loads (could rebuild on edits)
+// ------------------------------------------------------------
+function computeEstimate() {
+  const totalFloorSqFt = ROOMS.reduce((s, r) => s + r.w * r.d, 0);
+  const totalWallArea = WALL_MESHES.reduce((s, w) => s + w.userData.area, 0);
+  const interiorWallArea = WALL_MESHES
+    .filter(w => !w.userData.isOuter)
+    .reduce((s, w) => s + w.userData.area, 0);
+  const exteriorWallArea = WALL_MESHES
+    .filter(w => w.userData.isOuter)
+    .reduce((s, w) => s + w.userData.area, 0);
+  const roofArea = roof.userData.area;
+
+  // Industry rules of thumb:
+  //   Drywall: ~$1.50/sqft installed (avg 1/2" board). 4x8 sheet = 32 sqft, $15-25/sheet
+  //   Paint: ~350 sqft/gallon per coat (2 coats typical → 175 sqft/gallon finished)
+  //   Framing lumber: 2x4 @ 16" OC, plate + studs ≈ 4.5 board feet per sqft wall area
+  //   Roofing: 3 bundles per square (100 sqft), $35-50/bundle
+  //   Concrete slab: avg $5/sqft installed in Houston
+  const drywallSqFt = interiorWallArea;
+  const drywallSheets = Math.ceil(drywallSqFt / 32);
+  const paintGallons = Math.ceil(drywallSqFt / 175);
+  const lumberBF = Math.round(interiorWallArea * 4.5);
+  const roofSquares = roofArea / 100;
+  const shingleBundles = Math.ceil(roofSquares * 3);
+
+  // Cost ranges (Texas/Houston 2026 mid-range)
+  const cost = {
+    drywall:  Math.round(drywallSheets * 22),
+    paint:    Math.round(paintGallons * 45),
+    lumber:   Math.round(lumberBF * 1.10),
+    shingles: Math.round(shingleBundles * 42),
+    slab:     Math.round(totalFloorSqFt * 5),
+  };
+  cost.total = cost.drywall + cost.paint + cost.lumber + cost.shingles + cost.slab;
+
+  return {
+    totalFloorSqFt,
+    totalWallArea,
+    interiorWallArea,
+    exteriorWallArea,
+    roofArea,
+    drywallSqFt,
+    drywallSheets,
+    paintGallons,
+    lumberBF,
+    roofSquares,
+    shingleBundles,
+    cost,
+  };
+}
+const ESTIMATE = computeEstimate();
+
+// Populate the estimator panel
+function fillEstimate() {
+  const e = ESTIMATE;
+  const $ = id => document.getElementById(id);
+  $('est-floor').textContent     = `${e.totalFloorSqFt.toLocaleString()} sq ft`;
+  $('est-wall').textContent      = `${e.totalWallArea.toFixed(0)} sq ft`;
+  $('est-wall-int').textContent  = `${e.interiorWallArea.toFixed(0)} sq ft`;
+  $('est-roof').textContent      = `${e.roofArea.toFixed(0)} sq ft`;
+  $('est-drywall-sq').textContent = `${e.drywallSqFt.toFixed(0)} sq ft`;
+  $('est-drywall-sh').textContent = `${e.drywallSheets} sheets`;
+  $('est-paint').textContent     = `${e.paintGallons} gallons`;
+  $('est-lumber').textContent    = `${e.lumberBF.toLocaleString()} BF`;
+  $('est-shingles').textContent  = `${e.shingleBundles} bundles`;
+  $('est-roof-sq').textContent   = `${e.roofSquares.toFixed(1)} squares`;
+  $('cost-drywall').textContent  = `$${e.cost.drywall.toLocaleString()}`;
+  $('cost-paint').textContent    = `$${e.cost.paint.toLocaleString()}`;
+  $('cost-lumber').textContent   = `$${e.cost.lumber.toLocaleString()}`;
+  $('cost-shingles').textContent = `$${e.cost.shingles.toLocaleString()}`;
+  $('cost-slab').textContent     = `$${e.cost.slab.toLocaleString()}`;
+  $('cost-total').textContent    = `$${e.cost.total.toLocaleString()}`;
+}
+fillEstimate();
+
+// ------------------------------------------------------------
+//   GLB EXPORT — download the whole scene as a .glb
+// ------------------------------------------------------------
+document.getElementById('btn-glb').addEventListener('click', () => {
+  const exporter = new GLTFExporter();
+  exporter.parse(
+    scene,
+    (result) => {
+      const blob = new Blob([result], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'genesis-home.glb';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+    (err) => { console.error('GLB export failed', err); alert('GLB export failed: ' + err.message); },
+    { binary: true, embedImages: true }
+  );
+});
 
 // ------------------------------------------------------------
 //   RENDER LOOP
@@ -682,11 +1303,15 @@ function animate() {
     orbit.update();
   }
 
-  renderer.render(scene, camera);
+  composer.render();
   labelRenderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 animate();
 
-// Expose for debugging
-window.GENESIS = { scene, camera, orbit, ROOMS, DOORS, WINDOWS, STATS };
+// Debug hook — toggle post-processing on/off from console: GENESIS.togglePost()
+window.GENESIS = {
+  scene, camera, orbit, ROOMS, DOORS, WINDOWS, STATS,
+  composer, ssaoPass, outlinePass,
+  togglePost() { this.composer.enabled = !this.composer.enabled; },
+};
