@@ -51,7 +51,7 @@
 ```js
 // State bridge
 GENESIS.state                 // the state module's state object
-GENESIS.loadPlan(plan)        // validate, derive, install — throws on bad input
+GENESIS.loadPlan(plan)        // validate, derive, install, rebuild scene + UI — throws on bad input
 GENESIS.describe()            // human-readable summary of current house
 GENESIS.getRoom(id)           // → room object or null
 GENESIS.getWall(id)           // → wall object or null
@@ -65,11 +65,9 @@ GENESIS.ROOMS, DOORS, WINDOWS, STATS  // live references to state
 GENESIS.composer, ssaoPass, outlinePass
 GENESIS.togglePost()          // toggle SSAO + outline on/off
 
-// Scene rebuild (v0.10+ — currently refreshes side-panel UI only)
-GENESIS.rebuildSceneFromPlan(plan)
-
-// Demo fixture
-GENESIS.demoPlan()            // load the bundled Sample Home plan
+// Scene rebuild — done by loadPlan(); these still exposed as escape hatches
+GENESIS.rebuildSceneFromPlan(plan)  // refresh side panel + stats card
+GENESIS.demoPlan()            // reload the bundled Sample Home plan
 ```
 
 ## Plan shape
@@ -129,14 +127,17 @@ GENESIS.demoPlan()            // load the bundled Sample Home plan
 | `loadPlan(rawPlan)` | A plan (or raw input — auto-validates) | Installs `state.house` + recomputes `state.stats` |
 | `deriveWalls(plan)` | A validated plan | `{ outer[], interior[], wallsByRoom, openings }` |
 | `computeStats(plan, walls)` | Both above | `{ roomCount, floorAreaSqFt, walls..., openings, linearFt* }` |
-| `buildSceneFrom(plan)` | **NEXT STEP — v0.10** | New Three.js meshes that replace the current scene |
+| `buildHouse(plan)` | Both above | Three.js group (slab, floors, walls, doors, windows, foundation, labels) installed inside `houseGroup`; old geometry disposed |
+| `disposeHouse()` | (none) | Recursively disposes the previous `houseGroup` children + clears `INTERACTABLE`/`WALL_MESHES` registries |
 
 ## What is NOT in scope yet (the next round)
 
-- `buildSceneFrom(plan)` — currently the **side-panel updates** when a new plan is loaded, but the **3D meshes don't get replaced**. Adding this is the obvious next foundation item. Cleanly bounded because the data layer above it is already done.
-- Multi-floor (vertical Y extrusion).
-- Material assignment beyond `color`/`accent` (PBR textures).
-- Real blueprint parsing (PDF → plan via OCR/YOLO).
+| Item | Status | Notes |
+|---|---|---|
+| `buildHouse(plan)` full visual fidelity | **DONE (v1.1) structure; PARTIAL visuals.** Slab, floors, walls, openings are built from the plan. **Stub**: doors/windows are simple plane proxies, no roof gables, no baseboards/crown, no per-room furniture yet. v0.11 work. |
+| Real-plan ingestion (PDF/DWG → plan) | NEXT. OCR + YOLO11 + SAM + RoomFormer. With `state.js` + `buildHouse(plan)` in place, this is a single parse function feeding `loadPlan()`. |
+| Multi-floor (vertical extrusion) | Future. `plan` already has `h: number` per room; v0.11+ adds a `floors[]` array. |
+| Material library beyond `color`/`accent` | Future. Current floors + walls share one PBR material family. Each room has a `materials: { wall, floor, ceiling }` slot ready. |
 
 ## Hard rules when adding features
 
