@@ -160,6 +160,80 @@ test('loadPlan(replacement) replaces state.house, then restores', () => {
 });
 
 // =====================================================
+//   v1.3 — multi-floor schema + roof-open-rooms
+// =====================================================
+
+tests.push({
+  name: 'multi-floor schema: deriveWalls honors per-room ceiling height',
+  async fn() {
+    // Two rooms side-by-side: 9ft on left, 22ft on right (two-story volume)
+    loadPlan({
+      name: 'TT',
+      rooms: [
+        { id: 'a', name: 'A', x: 0, z: 0, w: 10, d: 10, h: 9 },
+        { id: 'b', name: 'B', x: 10, z: 0, w: 10, d: 10, h: 22 },
+      ],
+      footprint: { w: 20, d: 10 },
+    });
+    const walls = deriveWalls(state.house.plan);
+    // The shared wall between a and b should be h=22 (max of 9, 22)
+    const shared = walls.interior.find(w => w.rooms && w.rooms.includes('a') && w.rooms.includes('b'));
+    assert(shared, 'a-b shared wall should exist');
+    assert(shared.height === 22, `shared wall height should be 22 (max of 9, 22), got ${shared.height}`);
+  },
+});
+
+tests.push({
+  name: 'roofOpenRooms: loadPlan preserves the array for buildRoof',
+  async fn() {
+    loadPlan({
+      name: 'OPEN',
+      rooms: [
+        { id: 'a', name: 'A', x: 0, z: 0, w: 10, d: 10, h: 9 },
+        { id: 'b', name: 'B', x: 0, z: 10, w: 10, d: 10, h: 22 },
+      ],
+      roofOpenRooms: ['b'],
+      footprint: { w: 10, d: 20 },
+    });
+    assert(state.house.plan.roofOpenRooms.length === 1, 'roofOpenRooms is preserved');
+    assert(state.house.plan.roofOpenRooms[0] === 'b', 'room id is b');
+    // Restore
+    loadPlan(DEMO_PLAN);
+  },
+});
+
+tests.push({
+  name: 'floors: loadPlan defaults to a single ground floor when absent',
+  async fn() {
+    loadPlan({ name: 'X', rooms: [{ id: 'r', name: 'R', x: 0, z: 0, w: 10, d: 10 }] });
+    assert(state.house.plan.floors.length === 1, 'one floor by default');
+    assert(state.house.plan.floors[0].rooms.length === 1, 'ground floor has all rooms');
+    loadPlan(DEMO_PLAN);
+  },
+});
+
+tests.push({
+  name: 'floors: loadPlan accepts a stack of named floors',
+  async fn() {
+    loadPlan({
+      name: 'STACK',
+      floors: [
+        { name: 'Ground', rooms: ['low'], elevation: 0 },
+        { name: 'Upper',  rooms: ['hi'],  elevation: 10 },
+      ],
+      rooms: [
+        { id: 'low', name: 'Low', x: 0, z: 0, w: 20, d: 20, h: 9 },
+        { id: 'hi',  name: 'Hi',  x: 0, z: 0, w: 20, d: 20, h: 9 },
+      ],
+    });
+    assert(state.house.plan.floors.length === 2, 'two floors loaded');
+    assert(state.house.plan.floors[0].name === 'Ground', 'first floor is Ground');
+    assert(state.house.plan.floors[1].elevation === 10, 'second floor elevation = 10');
+    loadPlan(DEMO_PLAN);
+  },
+});
+
+// =====================================================
 //   RUN
 // =====================================================
 

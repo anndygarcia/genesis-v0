@@ -178,14 +178,22 @@ function buildHouse(plan) {
     addInnerWallOnGroup(w);
   }
 
-  // ----- Doors -----
+  // ----- Doors — BlackPlane proxy + per-room ceiling positioning.
+  // For each door, look up the wall it's hosted on and use that
+  // wall's actual height so the door sits at floor level on a
+  // 22ft wall or a 9ft wall the same way.
   plan.doors.forEach(d => {
-    addDoorOnGroup(d, WALL_H_LOCAL);
+    // Find the host wall in state.house.interiorWalls by position+axis
+    const hostWall = findHostWall(d);
+    const wallH = hostWall?.height || WALL_H_LOCAL;
+    addDoorOnGroup(d, wallH);
   });
 
-  // ----- Windows -----
+  // ----- Windows — same height logic, sill at conventional 4ft.
   plan.windows.forEach(w => {
-    addWindowOnGroup(w, WALL_H_LOCAL);
+    const hostWall = findHostWall(w);
+    const wallH = hostWall?.height || WALL_H_LOCAL;
+    addWindowOnGroup(w, wallH);
   });
 
   // ----- Roof (gable over whole footprint) -----
@@ -215,16 +223,36 @@ function buildHouse(plan) {
 
 function addOuterWallOnGroup(plan, x, z, w, d, side) {
   const mat = wallMat;
-  const geo = new THREE.BoxGeometry(w, 9, d);
+  // Outer wall height computed from three sources (highest wins):
+  //   1. plan.wallOverrides?.[side]   — explicit caller override
+  //   2. max h of any room on the inside of that wall side
+  //   3. plan.footprint.wallH         — global default (typically 9 or 10)
+  const hPlan = plan?.footprint?.wallH || 9;
+  const overrides = plan?.wallOverrides || {};
+  let ht = hPlan;
+  if (overrides[side] && Number(overrides[side]) > ht) ht = Number(overrides[side]);
+  if (Array.isArray(plan?.rooms)) {
+    const D = plan.footprint?.d || 0, W = plan.footprint?.w || 0;
+    for (const r of plan.rooms) {
+      const rh = r.h || 9;
+      if (
+        (r.z === 0 && side === 's' && rh > ht) ||
+        (r.z + r.d === D && side === 'n' && rh > ht) ||
+        (r.x === 0 && side === 'w' && rh > ht) ||
+        (r.x + r.w === W && side === 'e' && rh > ht)
+      ) ht = rh;
+    }
+  }
+  const geo = new THREE.BoxGeometry(w, ht, d);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x + w / 2, 9 / 2, z + d / 2);
+  mesh.position.set(x + w / 2, ht / 2, z + d / 2);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = `wall-outer-${side}`;
   mesh.userData = {
     kind: 'wall', isOuter: true,
     length: Math.max(w, d),
-    height: 9, area: Math.max(w, d) * 9 * 2,
+    height: ht, area: Math.max(w, d) * ht * 2,
     ax: x, az: z, aw: w, ad: d, side,
     rooms: [],
   };
@@ -234,9 +262,10 @@ function addOuterWallOnGroup(plan, x, z, w, d, side) {
 }
 
 function addInnerWallOnGroup(w) {
-  // w is { id, length, axis, side, x, z, rooms }
+  // w is { id, length, axis, side, x, z, rooms, height }
   const mat = wallMatInterior;
-  const wThick = 0.5, wHt = 9;
+  const wThick = 0.5;
+  const wHt = w.height || 9;
   let geo, posX, posZ;
   if (w.axis === 'x') {
     geo = new THREE.BoxGeometry(w.length, wHt, wThick);
@@ -265,19 +294,51 @@ function addInnerWallOnGroup(w) {
 
 // door / window helpers — minimal placeholders for v0.10.
 // v0.11 will port the full addDoor / addWindow visuals onto the plan-driven path.
+// Find the host wall for a door or window by matching its position
+// against the derived walls. Door/window coordinates are {x,z,w,axis}
+// in same coordinates as walls. Used so the door position lines up
+// with the actual wall height (a 22ft two-story vs a 9ft bedroom).
+function findHostWall(opening) {
+  // Wall geometry: a wall with axis='z' runs ALONG the z axis (so w.length is
+  // measured in z; w.x is its x-position; w.z is its starting z). An
+  // opening with axis='z' lives on a wall that runs along z — so the
+  // opening's x should match the wall's x, and the opening's z lies
+  // inside [w.z, w.z + w.length]. Same logic mirrored for axis='x'.
+  const all = [
+    ...(state.house.walls || []),            // outer walls
+    ...(state.house.interiorWalls || []),    // interior walls
+  ];
+  for (const w of all) {
+    if (w.axis !== opening.axis) continue;
+    if (opening.axis === 'z') {
+      if (Math.abs(w.x - opening.x) < 0.5 &&
+          opening.z >= w.z - 0.5 && opening.z <= w.z + w.length + 0.5) {
+        return w;
+      }
+    } else {  // axis === 'x'
+      if (Math.abs(w.z - opening.z) < 0.5 &&
+          opening.x >= w.x - 0.5 && opening.x <= w.x + w.length + 0.5) {
+        return w;
+      }
+    }
+  }
+  return null;
+}
+
 function addDoorOnGroup(d, h) {
   // Create a simple black-plane proxy for now. The full addDoor has many
   // sub-meshes (frame, plank, etc.); porting those is the next slice.
+  // h is the wall height; door is 8ft tall starting from the floor.
+  const doorH = 8;
   const proxy = new THREE.Mesh(
-    new THREE.PlaneGeometry(d.w, h),
+    new THREE.PlaneGeometry(d.w, doorH),
     new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.0, side: THREE.DoubleSide })
   );
-  // Position on its host wall (axis z or x; offset along the axis at 'x' or 'z')
   if (d.axis === 'z') {
-    proxy.position.set(d.x + d.w / 2, h / 2, d.z);
+    proxy.position.set(d.x + d.w / 2, doorH / 2, d.z);
     proxy.rotation.y = Math.PI / 2;
   } else {
-    proxy.position.set(d.x, h / 2, d.z + d.w / 2);
+    proxy.position.set(d.x, doorH / 2, d.z + d.w / 2);
   }
   proxy.userData = { kind: 'door', id: d.id, label: d.label };
   proxy.name = `door-${d.id}`;
@@ -286,19 +347,22 @@ function addDoorOnGroup(d, h) {
 }
 
 function addWindowOnGroup(wd, h) {
+  // Window is 3ft tall, sits at 4ft sill height (architectural convention).
+  const winH = 3;
+  const sillH = 4;
   const proxy = new THREE.Mesh(
-    new THREE.PlaneGeometry(wd.w, 3),
+    new THREE.PlaneGeometry(wd.w, winH),
     new THREE.MeshPhysicalMaterial({
       color: 0x9ed5ff, roughness: 0.05, metalness: 0.1,
       transmission: 0.7, transparent: true, opacity: 0.5,
       side: THREE.DoubleSide,
-    })
+    }),
   );
   if (wd.axis === 'z') {
-    proxy.position.set(wd.x + wd.w / 2, 3.5, wd.z);
+    proxy.position.set(wd.x + wd.w / 2, sillH + winH / 2, wd.z);
     proxy.rotation.y = Math.PI / 2;
   } else {
-    proxy.position.set(wd.x, 3.5, wd.z + wd.w / 2);
+    proxy.position.set(wd.x, sillH + winH / 2, wd.z + wd.w / 2);
   }
   proxy.userData = { kind: 'window', id: wd.id, label: wd.label };
   proxy.name = `window-${wd.id}`;
@@ -706,6 +770,14 @@ const wallMatInterior = new THREE.MeshStandardMaterial({
 //   • roofPitchRise  — gable pitch in feet (rise over half-span)
 // computeEstimate() reads roofArea to price shingles; buildOpenings
 // reads it for the quantity-takeoff panel.
+//
+// v1.3: now treats rooms listed in plan.roofOpenRooms as holes
+// (no roof geometry above their footprint). The roof becomes a
+// mosaic of planar slabs that wraps the rest of the footprint.
+// The volume above an open room stays open — visible from outside.
+// In the Garcia residence, the dining + foyer are open rooms
+// (22ft ceilings) so the roof skips a rectangle above them,
+// creating a visible atrium / two-story volume.
 let roofArea = 0;
 let roofPitchRise = ROOF_PITCH;
 function buildRoof(plan) {
@@ -715,38 +787,31 @@ function buildRoof(plan) {
   const ridgeY = ROOF_PITCH;     // additional rise above wall top
   const wallTop = WALL_H;        // walls stop at this y
 
-  // Two slope planes as a single BufferGeometry (sharing seams).
-  const verts = new Float32Array([
-    // WEST slope (rising from x=0,wallTop to x=halfSpan,wallTop+pitch)
-    0,          wallTop, 0,
-    halfSpan,   wallTop + ridgeY, 0,
-    halfSpan,   wallTop + ridgeY, d,
-    0,          wallTop, d,
-    // EAST slope (descending)
-    halfSpan,   wallTop + ridgeY, 0,
-    w,          wallTop, 0,
-    w,          wallTop, d,
-    halfSpan,   wallTop + ridgeY, d,
-  ]);
-  const idx = [0,1,2, 0,2,3,   4,5,6, 4,6,7];
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
+  // Build the set of "open rectangles" that the roof should NOT cover.
+  // A room is "open" (no roof above it) when ANY of these is true:
+  //   • it's listed in plan.roofOpenRooms (explicit two-story volumes)
+  //   • its h is 0 or absent               (outdoor patios, courtyards)
+  const openSet = new Set(Array.isArray(plan.roofOpenRooms) ? plan.roofOpenRooms : []);
+  const openRects = (plan.rooms || [])
+    .filter(r => openSet.has(r.id) || (!r.h || r.h <= 0))
+    .map(r => ({ x: r.x, z: r.z, w: r.w, d: r.d, id: r.id }));
+
+  // Slab the roof footprint into rectangles that exclude open
+  // rectangles. Each covered rectangle becomes a 2-slope gable
+  // "panel" of width (W2), pitch ROOF_PITCH. For v1.3 we keep
+  // the simple shared-ridge geometry per panel.
+  // v1.4 will fold these into a single indexed mesh with proper UV
+  // joins.
+  const panels = splitFootprintByOpenRects(0, 0, w, d, openRects);
 
   const slopeMat = new THREE.MeshStandardMaterial({
     map: shingleTex,
-    color: 0x9e6b3f,            // lighter brown tint applied on top of texture
+    color: 0x9e6b3f,
     roughness: 0.78,
     metalness: 0,
     envMapIntensity: 0.7,
     side: THREE.DoubleSide,
   });
-  const slopes = new THREE.Mesh(geo, slopeMat);
-  slopes.castShadow = true;
-  slopes.receiveShadow = true;
-
-  // Gable ends (south + north triangle facias) — sheetrock
   const gableMat = new THREE.MeshStandardMaterial({
     map: sheetrockTex.clone(),
     color: 0xebe0d0,
@@ -754,39 +819,133 @@ function buildRoof(plan) {
     metalness: 0,
     envMapIntensity: 0.3,
   });
-  const tri = (zPos) => {
-    const a = new Float32Array([
-      0, wallTop, zPos,
-      w, wallTop, zPos,
-      halfSpan, wallTop + ridgeY, zPos,
-    ]);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(a, 3));
-    g.setIndex([0, 1, 2, 0, 2, 1]);   // both faces
-    g.computeVertexNormals();
-    const m = new THREE.Mesh(g, gableMat);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    return m;
-  };
-  const south = tri(0);
-  const north = tri(d);
 
   const group = new THREE.Group();
-  group.add(slopes, south, north);
+  let totalArea = 0;
+  for (const p of panels) {
+    const W2 = p.w, D2 = p.d;
+    const hs = W2 / 2;
+    const verts = new Float32Array([
+      // WEST slope (rising)
+      0,        wallTop, 0,
+      hs,       wallTop + ridgeY, 0,
+      hs,       wallTop + ridgeY, D2,
+      0,        wallTop, D2,
+      // EAST slope (descending)
+      hs,       wallTop + ridgeY, 0,
+      W2,       wallTop, 0,
+      W2,       wallTop, D2,
+      hs,       wallTop + ridgeY, D2,
+    ]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    geo.setIndex([0,1,2, 0,2,3, 4,5,6, 4,6,7]);
+    geo.computeVertexNormals();
+    const slopes = new THREE.Mesh(geo, slopeMat);
+    slopes.position.set(p.x, 0, p.z);
+    slopes.castShadow = true;
+    slopes.receiveShadow = true;
+    group.add(slopes);
+
+    // Each panel's south + north gable triangles (skip if the panel
+    // is on the building's south or north edge — those gables are
+    // already on the perimeter).
+    if (p.z !== 0) {
+      const a = new Float32Array([0, wallTop, 0, W2, wallTop, 0, hs, wallTop + ridgeY, 0]);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+      g.setIndex([0, 1, 2, 0, 2, 1]);
+      g.computeVertexNormals();
+      const m = new THREE.Mesh(g, gableMat);
+      m.position.set(p.x, 0, p.z);
+      group.add(m);
+    }
+    if (p.z + p.d !== d) {
+      const a = new Float32Array([0, wallTop, D2, W2, wallTop, D2, hs, wallTop + ridgeY, D2]);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+      g.setIndex([0, 1, 2, 0, 2, 1]);
+      g.computeVertexNormals();
+      const m = new THREE.Mesh(g, gableMat);
+      m.position.set(p.x, 0, p.z);
+      group.add(m);
+    }
+    totalArea += 2 * D2 * Math.sqrt(hs * hs + ridgeY * ridgeY);
+  }
+
   group.name = 'roof';
   group.userData = {
     kind: 'roof',
-    // Two slopes × length × slant length = total roof area.
-    area: 2 * d * Math.sqrt(halfSpan * halfSpan + ridgeY * ridgeY),
+    area: totalArea,
     pitchRise: ridgeY,
     pitchRun: halfSpan,
+    panelCount: panels.length,
+    openRectCount: openRects.length,
   };
-
-  // Update module-level mirrors
-  roofArea = group.userData.area;
+  roofArea = totalArea;
   roofPitchRise = ridgeY;
   return group;
+}
+
+// Subdivide the footprint rectangle into a list of "covered" panels
+// that don't overlap any of the openRect rectangles. The algorithm
+// finds all OPEN strips along Z (and X for any leftover holes, not
+// yet implemented for v1.3) and produces a flat list of rectangular
+// panels.
+//   1. Collect all open rows: sort unique [z, z+d] intervals from
+//      every openRect.
+//   2. Walk the Z-axis from z0..z0+D, skipping band ranges that fall
+//      inside any open row.
+//   3. For each non-open band, split along X for any openRect that
+//      falls inside that band (a single split per band suffices
+//      because Garcia has only one open column on the north strip).
+//
+// Backwards-compat: when openRects is empty, returns a single full
+// panel covering [x0..W, z0..D].
+function splitFootprintByOpenRects(x0, z0, W, D, openRects) {
+  if (!openRects.length) return [{ x: x0, z: z0, w: W, d: D }];
+
+  // 1) Gather all z-rows from openRects (sorted unique)
+  const zRows = new Set([z0, z0 + D]);     // start/end of footprint
+  for (const o of openRects) {
+    if (o.z > z0)         zRows.add(o.z);             // start of open
+    if (o.z + o.d < z0 + D) zRows.add(o.z + o.d);     // end of open
+  }
+  const zSorted = [...zRows].sort((a, b) => a - b);
+
+  const panels = [];
+  // 2) Walk consecutive Z-band pairs (always produces a covered strip)
+  for (let i = 0; i + 1 < zSorted.length; i++) {
+    const zLo = zSorted[i];
+    const zHi = zSorted[i + 1];
+    if (zHi <= zLo) continue;
+    // Sample midband Z to decide whether this band is covered or not
+    const midZ = (zLo + zHi) / 2;
+    const hereOpens = openRects.filter(o => midZ > o.z && midZ < o.z + o.d);
+    if (!hereOpens.length) {
+      panels.push({ x: x0, z: zLo, w: W, d: zHi - zLo });
+      continue;
+    }
+    // 3) Subdivide the band along X — emit covered segments between
+    // consecutive x-cuts (where the midpoint isn't inside an open).
+    const xCuts = new Set([x0, x0 + W]);
+    for (const o of hereOpens) {
+      xCuts.add(Math.max(x0, o.x));
+      xCuts.add(Math.min(x0 + W, o.x + o.w));
+    }
+    const xSorted = [...xCuts].sort((a, b) => a - b);
+    for (let j = 0; j + 1 < xSorted.length; j++) {
+      const xLo = xSorted[j];
+      const xHi = xSorted[j + 1];
+      if (xHi <= xLo) continue;
+      const midX = (xLo + xHi) / 2;
+      const inside = hereOpens.some(o => midX > o.x && midX < o.x + o.w);
+      if (!inside) {
+        panels.push({ x: xLo, z: zLo, w: xHi - xLo, d: zHi - zLo });
+      }
+    }
+  }
+  return panels;
 }
 
 // Placeholder for legacy reference in computeEstimate() (foundation/porch/

@@ -111,9 +111,13 @@ export function validatePlan(raw) {
       z:          Number(r.z),
       w:          Number(r.w),
       d:          Number(r.d),
+      // Ceiling height (feet). Defaults to 9ft. Two-story volumes have
+      // h ≈ 18–22ft and are typically listed in plan.roofOpenRooms
+      // below so the roof builder skips their footprint.
       h:          Number(r.h   || DEFAULT_FOOTPRINT.wallH),
       color:      String(r.color || '#e6edf3'),
       accent:     String(r.accent || '#666'),
+      notes:      String(r.notes || ''),
     };
   });
 
@@ -156,6 +160,32 @@ export function validatePlan(raw) {
     doors,
     windows,
     footprint: { w: footprintW, d: footprintD },
+    // ============ v1.3+ architectural extensions ============
+    // Array of room IDs whose footprint should NOT receive a roof.
+    // Used for two-story volumes (the dining room / foyer in the
+    // Garcia residence: 22ft ceiling, open to the second floor).
+    // Builder walks this list and skips those rectangles when
+    // tiling the gable. Walls bounding those rooms still extend up
+    // to room.h, giving the volume its tall interior.
+    roofOpenRooms: Array.isArray(raw.roofOpenRooms)
+      ? raw.roofOpenRooms.map(String)
+      : [],
+    // Optional floor-stack metadata. v2.0 only renders the first floor;
+    // v2.1 will add an elevation / stack per entry.
+    // Each floor: { name, rooms: [id, ...], elevation: number (y-offset, ft) }
+    floors: Array.isArray(raw.floors)
+      ? raw.floors.map((f, i) => ({
+          name: String(f.name || `Floor ${i + 1}`),
+          rooms: Array.isArray(f.rooms) ? f.rooms.map(String) : rooms.map(r => r.id),
+          elevation: Number(f.elevation || 0),
+        }))
+      : [{ name: 'Ground', rooms: rooms.map(r => r.id), elevation: 0 }],
+    // Per-axis wall heights override (rarely needed — defaults to
+    // per-room h). Format: { 'south': 22, 'east': 18, ... }.
+    // Used by some plans where a side wall is taller than the rooms.
+    wallOverrides: raw.wallOverrides && typeof raw.wallOverrides === 'object'
+      ? Object.fromEntries(Object.entries(raw.wallOverrides).map(([k, v]) => [k, Number(v)]))
+      : {},
   };
 }
 
@@ -180,21 +210,38 @@ export function deriveWalls(plan) {
 
   // Outer rectangle
   const { w: W, d: D } = plan.footprint;
+
+  // Wall heights come from the max h of any room on the *inside* of
+  // that wall. For v1.3 we still treat each side as one uniform
+  // height, which gives a reasonable approximation. (v2.1 will allow
+  // per-segment heights.)
+  // North (z = D) side rooms = rooms whose z + d == D
+  // South (z = 0)  side rooms = rooms whose z == 0
+  // West  (x = 0)  side rooms = rooms whose x == 0
+  // East  (x = W)  side rooms = rooms whose x + w == W
+  const wallHeightBySide = { n: 9, s: 9, w: 9, e: 9 };
+  for (const r of plan.rooms) {
+    if (r.z === 0)        wallHeightBySide.s = Math.max(wallHeightBySide.s, r.h || 9);
+    if (r.z + r.d === D)  wallHeightBySide.n = Math.max(wallHeightBySide.n, r.h || 9);
+    if (r.x === 0)        wallHeightBySide.w = Math.max(wallHeightBySide.w, r.h || 9);
+    if (r.x + r.w === W)  wallHeightBySide.e = Math.max(wallHeightBySide.e, r.h || 9);
+  }
+
   outer.push({
     id: 'outer-s', length: W, axis: 'x', side: 's',
-    rooms: [], isOuter: true,
+    rooms: [], isOuter: true, height: wallHeightBySide.s,
   });
   outer.push({
     id: 'outer-n', length: W, axis: 'x', side: 'n',
-    rooms: [], isOuter: true,
+    rooms: [], isOuter: true, height: wallHeightBySide.n,
   });
   outer.push({
     id: 'outer-w', length: D, axis: 'z', side: 'w',
-    rooms: [], isOuter: true,
+    rooms: [], isOuter: true, height: wallHeightBySide.w,
   });
   outer.push({
     id: 'outer-e', length: D, axis: 'z', side: 'e',
-    rooms: [], isOuter: true,
+    rooms: [], isOuter: true, height: wallHeightBySide.e,
   });
 
   // Interior walls — every pair of rooms that share an edge
@@ -215,6 +262,11 @@ export function deriveWalls(plan) {
           x: shared.x, z: shared.z,
           rooms: [a.id, b.id],
           isOuter: false,
+          // v1.3: wall height = max of the two rooms' ceiling heights.
+          // This way a two-story room (h=22) bumps a 10ft neighbor's
+          // shared wall up to 22ft, which is physically what an open
+          // volume looks like in a real house.
+          height: Math.max(a.h || 9, b.h || 9),
         });
         wallsByRoom[a.id].push(wid);
         wallsByRoom[b.id].push(wid);
