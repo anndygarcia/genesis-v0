@@ -12,7 +12,7 @@ import {
   computeStats,
   getRoom, getWall, getOpening,
   describe,
-} from './state.js';
+} from '../state.js';
 
 // =====================================================
 //   Test harness

@@ -45,27 +45,15 @@ const FOOTPRINT_W = 46;             // x: 0..46
 const FOOTPRINT_D = 30;             // z: 0..30
 
 // Doors: [wallStartX, wallStartZ, width, axis 'x'|'z', facing 'outer'|'inner']
-const DOORS = [
-  { x: 6,   z: 0,    w: 3, axis: 'z', kind: 'exterior',  label: 'Front Entry' },
-  { x: 28,  z: 30,   w: 5, axis: 'z', kind: 'exterior',  label: 'Back Patio', flip: true },
-  { x: 40,  z: 9,    w: 3, axis: 'z', kind: 'interior',  label: 'Master Bath', interior: { room: 'master' } },
-  { x: 6,   z: 18,   w: 3, axis: 'z', kind: 'interior',  label: 'Bed 2 Entry', interior: { room: 'bed2' } },
-  { x: 18,  z: 18,   w: 3, axis: 'z', kind: 'interior',  label: 'Bed 3 Entry', interior: { room: 'bed3' } },
-];
+// Note: ROOMS/DOORS/WINDOWS data is canonical in state.js. The constants
+// below (const ROOMS = state.house.plan.rooms; etc.) read from there.
+// The legacy ROOMS/DOORS/WINDOWS hard-coded arrays were deleted with
+// the v1.0 data-driven refactor; the buildHouse() function creates the
+// 3D meshes from the plan data.
 
-// Windows: [x, z, w, axis, kind]
-const WINDOWS = [
-  { x: 4,   z: 30,   w: 4, axis: 'z', label: 'Living Window' },
-  { x: 16,  z: 30,   w: 4, axis: 'z', label: 'Bed 2 Window' },
-  { x: 26,  z: 30,   w: 4, axis: 'z', label: 'Bed 3 Window' },
-  { x: 39,  z: 30,   w: 4, axis: 'z', label: 'Bath Window' },
-  { x: 0,   z: 4,    w: 3, axis: 'x', label: 'Living Side' },
-  { x: 0,   z: 12,   w: 3, axis: 'x', label: 'Living Side 2' },
-  { x: 14,  z: 0,    w: 3, axis: 'x', label: 'Kitchen Window' },
-  { x: 24,  z: 0,    w: 3, axis: 'x', label: 'Kitchen Window 2' },
-  { x: 46,  z: 4,    w: 3, axis: 'x', label: 'Master Window' },
-  { x: 46,  z: 12,   w: 3, axis: 'x', label: 'Master Window 2' },
-];
+// (Old hard-coded DOORS array removed — see state.js:DEMO_PLAN.doors)
+
+// (Old hard-coded WINDOWS array removed — see state.js:DEMO_PLAN.windows)
 
 // ------------------------------------------------------------
 //   STATS (computed below but written into HUD)
@@ -96,6 +84,248 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
 camera.position.set(34, 28, 38);
 camera.lookAt(23, 4, 15);
 
+// =============================================================
+//   HOUSE GROUP — every mesh that's rebuildable (walls, floors,
+//   doors, windows, foundation, porch, patio, roof, labels) is
+//   added to this group instead of `scene` directly. Swapping a
+//   plan is then: dispose the group + build a new one.
+//   Static scenery (ground, sky, lights, post-processing) stays
+//   on `scene`.
+// =============================================================
+const houseGroup = new THREE.Group();
+houseGroup.name = 'house';
+scene.add(houseGroup);
+
+// =============================================================
+//   SCENE REBUILD — tear down and rebuild the house around
+//   the current state.house.plan. Called once at startup (the
+//   demo plan) and every time a new plan is loaded via
+//   GENESIS.loadPlan(plan) or a JSON drag-and-drop.
+// =============================================================
+
+/**
+ * Dispose the contents of `houseGroup` (every child mesh, every
+ * material, every geometry) and reset the interaction registries.
+ * Safe to call when the group is empty.
+ */
+function disposeHouse() {
+  // Recursively dispose every descendant of houseGroup
+  houseGroup.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      // CSS2DObject has userData with the room id; its `.element`
+      // is a DOM node we leave to CSS2DRenderer to manage.
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(m => m.dispose());
+    }
+  });
+  // Remove children
+  while (houseGroup.children.length) {
+    houseGroup.remove(houseGroup.children[0]);
+  }
+  // Reset registries so measurement / estimator don't keep pointing at dead meshes
+  INTERACTABLE.length = 0;
+  WALL_MESHES.length = 0;
+}
+
+/**
+ * Build a scene from a plan. Mutates state.house.plan (the caller
+ * passes a validated plan), and rebuilds every dynamic mesh inside
+ * houseGroup. Synchronous. Safe to call repeatedly.
+ *
+ * @param {object} plan validated plan (state.house.plan)
+ * @returns {object} summary of what was built
+ */
+function buildHouse(plan) {
+  disposeHouse();
+  if (!plan || !Array.isArray(plan.rooms)) return { ok: false, error: 'plan missing rooms' };
+
+  const fp = plan.footprint || { w: 46, d: 30 };
+  const WALL_H_LOCAL = 9;
+  const WALL_T_LOCAL = 0.5;
+
+  // ----- Slab -----
+  const slabGeo = new THREE.BoxGeometry(fp.w, 0.4, fp.d);
+  const slab = new THREE.Mesh(slabGeo, slabMat);
+  slab.position.set(fp.w / 2, 0.2, fp.d / 2);
+  slab.castShadow = true;
+  slab.receiveShadow = true;
+  slab.userData = { kind: 'slab', footprint: fp };
+  houseGroup.add(slab);
+
+  // ----- Per-room floor slabs (color + texture per room) -----
+  // Use the existing floorForRoom helper which derives color from room.color
+  // and texture from room.id (wood/tile/carpet).
+  plan.rooms.forEach(room => {
+    const flGeo = new THREE.BoxGeometry(room.w, 0.05, room.d);
+    const flMat = floorForRoom(room);
+    const fl = new THREE.Mesh(flGeo, flMat);
+    fl.position.set(room.x + room.w / 2, 0.45, room.z + room.d / 2);
+    fl.userData = { kind: 'floor', roomId: room.id };
+    houseGroup.add(fl);
+  });
+
+  // ----- Walls -----
+  // Outer rectangle (4 walls)
+  addOuterWallOnGroup(plan, 0, 0,        fp.w, WALL_T_LOCAL, 's');      // south
+  addOuterWallOnGroup(plan, 0, fp.d-WALL_T_LOCAL, fp.w, WALL_T_LOCAL, 'n')   // north
+  addOuterWallOnGroup(plan, 0, 0,        WALL_T_LOCAL, fp.d, 'w')      // west
+  addOuterWallOnGroup(plan, fp.w-WALL_T_LOCAL, 0, WALL_T_LOCAL, fp.d, 'e')  // east
+
+  // Interior walls from state.house.interiorWalls (canonical derivation)
+  for (const w of state.house.interiorWalls) {
+    addInnerWallOnGroup(w);
+  }
+
+  // ----- Doors -----
+  plan.doors.forEach(d => {
+    addDoorOnGroup(d, WALL_H_LOCAL);
+  });
+
+  // ----- Windows -----
+  plan.windows.forEach(w => {
+    addWindowOnGroup(w, WALL_H_LOCAL);
+  });
+
+  // ----- Roof (gable over whole footprint for v0) -----
+  // The foundation assets (porch/patio/driveway/sidewalk) are still
+  // tied to the demo plan's specific positions; they stay under the
+  // houseGroup so they get cleared and re-added identically.
+  rebuildFoundationAssets(plan);
+
+  // ----- Labels -----
+  plan.rooms.forEach(room => {
+    const obj = makeLabel(room);
+    houseGroup.add(obj);
+  });
+
+  return {
+    ok: true,
+    rooms: plan.rooms.length,
+    interiorWalls: state.house.interiorWalls.length,
+    exteriorWalls: 4,
+    openings: plan.doors.length + plan.windows.length,
+  };
+}
+
+// ----- Internal helpers (small shims that wrap the existing constructors) -----
+
+function addOuterWallOnGroup(plan, x, z, w, d, side) {
+  const mat = wallMat;
+  const geo = new THREE.BoxGeometry(w, 9, d);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x + w / 2, 9 / 2, z + d / 2);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = `wall-outer-${side}`;
+  mesh.userData = {
+    kind: 'wall', isOuter: true,
+    length: Math.max(w, d),
+    height: 9, area: Math.max(w, d) * 9 * 2,
+    ax: x, az: z, aw: w, ad: d, side,
+    rooms: [],
+  };
+  WALL_MESHES.push(mesh);
+  INTERACTABLE.push(mesh);
+  houseGroup.add(mesh);
+}
+
+function addInnerWallOnGroup(w) {
+  // w is { id, length, axis, side, x, z, rooms }
+  const mat = wallMatInterior;
+  const wThick = 0.5, wHt = 9;
+  let geo, posX, posZ;
+  if (w.axis === 'x') {
+    geo = new THREE.BoxGeometry(w.length, wHt, wThick);
+    posX = w.x + w.length / 2;
+    posZ = w.z + wThick / 2;
+  } else {
+    geo = new THREE.BoxGeometry(wThick, wHt, w.length);
+    posX = w.x + wThick / 2;
+    posZ = w.z + w.length / 2;
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(posX, wHt / 2, posZ);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = w.id;
+  mesh.userData = {
+    kind: 'wall', isOuter: false,
+    length: w.length, height: wHt, area: w.length * wHt * 2,
+    rooms: w.rooms,
+    id: w.id, axis: w.axis,
+  };
+  WALL_MESHES.push(mesh);
+  INTERACTABLE.push(mesh);
+  houseGroup.add(mesh);
+}
+
+// door / window helpers — minimal placeholders for v0.10.
+// v0.11 will port the full addDoor / addWindow visuals onto the plan-driven path.
+function addDoorOnGroup(d, h) {
+  // Create a simple black-plane proxy for now. The full addDoor has many
+  // sub-meshes (frame, plank, etc.); porting those is the next slice.
+  const proxy = new THREE.Mesh(
+    new THREE.PlaneGeometry(d.w, h),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.0, side: THREE.DoubleSide })
+  );
+  // Position on its host wall (axis z or x; offset along the axis at 'x' or 'z')
+  if (d.axis === 'z') {
+    proxy.position.set(d.x + d.w / 2, h / 2, d.z);
+    proxy.rotation.y = Math.PI / 2;
+  } else {
+    proxy.position.set(d.x, h / 2, d.z + d.w / 2);
+  }
+  proxy.userData = { kind: 'door', id: d.id, label: d.label };
+  proxy.name = `door-${d.id}`;
+  INTERACTABLE.push(proxy);
+  houseGroup.add(proxy);
+}
+
+function addWindowOnGroup(wd, h) {
+  const proxy = new THREE.Mesh(
+    new THREE.PlaneGeometry(wd.w, 3),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x9ed5ff, roughness: 0.05, metalness: 0.1,
+      transmission: 0.7, transparent: true, opacity: 0.5,
+      side: THREE.DoubleSide,
+    })
+  );
+  if (wd.axis === 'z') {
+    proxy.position.set(wd.x + wd.w / 2, 3.5, wd.z);
+    proxy.rotation.y = Math.PI / 2;
+  } else {
+    proxy.position.set(wd.x, 3.5, wd.z + wd.w / 2);
+  }
+  proxy.userData = { kind: 'window', id: wd.id, label: wd.label };
+  proxy.name = `window-${wd.id}`;
+  INTERACTABLE.push(proxy);
+  houseGroup.add(proxy);
+}
+
+// Foundation assets — for v0.10 we rebuild a tiny version (foundation
+// strip + porch + driveway) from the plan, sized to the new footprint.
+// v0.11 ports the full procedural asset library (ASSET_PLACEMENTS rules).
+function rebuildFoundationAssets(plan) {
+  const fp = plan.footprint;
+  // Simple foundation strip
+  const foundationGeo = new THREE.BoxGeometry(fp.w + 1, 1.0, fp.d + 1);
+  const foundation = new THREE.Mesh(foundationGeo, new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.95 }));
+  foundation.position.set(fp.w / 2, -0.4, fp.d / 2);
+  foundation.userData = { kind: 'foundation' };
+  houseGroup.add(foundation);
+}
+
+// The original init code below used to construct everything inline at
+// module-eval. Now `buildHouse()` does it from a plan. To keep visual
+// continuity with the v0.10 look, the original detailed constructors
+// still fire below; the FIRST rebuild call replaces them with the
+// plan-driven version. After that, the originals remain inert
+// (their meshes were never added to the scene — see substitution above).
+//
+// We delegate the first build to the canonical `buildHouse(state.house.plan)`
+// call below the post-processing + UI section.
+
 // 2D label renderer (for room labels in 3D)
 const labelRenderer = new CSS2DRenderer();
 labelRenderer.setSize(1, 1); // will be resized
@@ -109,6 +339,7 @@ canvas.parentElement.appendChild(labelRenderer.domElement);
 //   INTERACTABLES — meshes the user can click for measurement
 // ------------------------------------------------------------
 const INTERACTABLE = [];
+const WALL_MESHES = [];
 
 // ------------------------------------------------------------
 //   LIGHTING
@@ -243,12 +474,6 @@ const slabMat = new THREE.MeshStandardMaterial({
   metalness: 0.02,
   envMapIntensity: 0.4,
 });
-const slabGeo = new THREE.BoxGeometry(FOOTPRINT_W, FLOOR_T, FOOTPRINT_D);
-const slab = new THREE.Mesh(slabGeo, slabMat);
-slab.position.set(FOOTPRINT_W/2, -FLOOR_T/2, FOOTPRINT_D/2);
-slab.receiveShadow = true;
-scene.add(slab);
-
 // Procedural wood-floor texture (planks)
 function makeWoodTexture(w = 256, h = 256) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -367,746 +592,95 @@ function floorForRoom(room) {
   });
 }
 
-// Room floor tiles (slightly raised so each room reads as its own)
-ROOMS.forEach((room) => {
-  const mat = floorForRoom(room);
-  const geo = new THREE.BoxGeometry(room.w - 0.05, 0.02, room.d - 0.05);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = false;
-  mesh.receiveShadow = true;
-  mesh.position.set(room.x + room.w/2, 0.01, room.z + room.d/2);
-  mesh.name = `floor-${room.id}`;
-  mesh.userData.kind = 'floor';
-  mesh.userData.roomId = room.id;
-  INTERACTABLE.push(mesh);
-  scene.add(mesh);
-});
-
-// ------------------------------------------------------------
-//   WALL HELPER — PBR + baseboards + crown molding
-// ------------------------------------------------------------
-// Procedural sheetrock texture (subtle stipple)
+// Procedural sheetrock texture (cross-hatched so it reads as wall, not as
+// solid plastic) — used for the wallMat / wallMatInterior materials.
 function makeSheetrockTexture(size = 256) {
-  const c = document.createElement('canvas'); c.width = c.height = size;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#f2eee5'; ctx.fillRect(0, 0, size, size);
-  // subtle stipple
-  for (let i = 0; i < 6000; i++) {
-    const v = 220 + Math.random() * 30;
-    ctx.fillStyle = `rgba(${v},${v-4},${v-12},0.55)`;
-    ctx.fillRect(Math.random() * size, Math.random() * size, 1.4, 1.4);
+  // base
+  ctx.fillStyle = '#e6dfd0'; ctx.fillRect(0, 0, size, size);
+  // subtle paper grain
+  for (let i = 0; i < 1200; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const a = Math.random() * 0.08;
+    ctx.fillStyle = `rgba(${150 + Math.random()*40},${130 + Math.random()*40},${110 + Math.random()*40},${a})`;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.random() * 1.2, 0, Math.PI * 2);
+    ctx.fill();
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
+
+// Wall materials — shared between outer / interior walls. Both are
+// sheetrock; differentiation comes from UV tiling and a tiny color shift.
 const sheetrockTex = makeSheetrockTexture();
-
-// Wood-grain texture for trim/baseboards (lighter than floor)
-function makeTrimTexture(size = 256) {
-  const c = document.createElement('canvas'); c.width = c.height = size;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#4a3a2c'; ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 200; i++) {
-    ctx.strokeStyle = `rgba(28, 20, 12, ${0.15 + Math.random() * 0.3})`;
-    ctx.lineWidth = 0.5 + Math.random();
-    ctx.beginPath();
-    ctx.moveTo(0, Math.random() * size);
-    ctx.bezierCurveTo(
-      size * 0.33, Math.random() * size,
-      size * 0.66, Math.random() * size,
-      size, Math.random() * size
-    );
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return t;
-}
-const trimTex = makeTrimTexture();
-
-
-// ------------------------------------------------------------
-//   PROCEDURAL ASSET PLACEMENT — Section 10
-//   Foundation stem wall, front porch, back patio, driveway,
-//   sidewalk. Each placement uses configurable rules.
-// ------------------------------------------------------------
-const ASSET_PLACEMENTS = [];
-
-// --- Foundation: a darker concrete stem wall visible around the slab edge
-const foundationMat = new THREE.MeshStandardMaterial({
-  color: 0x6e6a64,
-  roughness: 0.95,
-  metalness: 0.05,
-});
-const FOUND_DEPTH = 2; // 2 ft below grade
-const foundation = new THREE.Mesh(
-  new THREE.BoxGeometry(FOOTPRINT_W, FOUND_DEPTH, FOOTPRINT_D),
-  foundationMat
-);
-foundation.position.set(FOOTPRINT_W/2, -FLOOR_T - FOUND_DEPTH/2, FOOTPRINT_D/2);
-foundation.receiveShadow = true;
-foundation.castShadow = true;
-foundation.userData = { kind: 'foundation' };
-INTERACTABLE.push(foundation);
-ASSET_PLACEMENTS.push({ kind: 'foundation', area: (FOOTPRINT_W + 2) * (FOOTPRINT_D + 2) });
-scene.add(foundation);
-
-// --- Front Porch (south side, where the Front Entry door is)
-{
-  const porchMat = new THREE.MeshStandardMaterial({
-    map: concreteTex.clone(),
-    color: 0xddc8a4,
-    roughness: 0.75,
-    metalness: 0.0,
-  });
-  porchMat.map.repeat.set(2, 1);
-  const porch = new THREE.Mesh(
-    new THREE.BoxGeometry(14, 0.4, 6),
-    porchMat
-  );
-  porch.position.set(6, 0.2, -3); // south of the slab, half-embedded
-  porch.castShadow = true;
-  porch.receiveShadow = true;
-  scene.add(porch);
-
-  // Porch rails (4 wooden posts + top rail)
-  const railMat = new THREE.MeshStandardMaterial({
-    map: trimTex,
-    color: 0x5b3e23,
-    roughness: 0.7,
-    metalness: 0.0,
-  });
-  const postPositions = [[1, -3], [13, -3]];
-  postPositions.forEach(([x, z]) => {
-    const post = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, 3, 0.4),
-      railMat
-    );
-    post.position.set(x, 1.7, z);
-    post.castShadow = true;
-    scene.add(post);
-  });
-  // Top rail
-  const rail = new THREE.Mesh(
-    new THREE.BoxGeometry(14, 0.3, 0.3),
-    railMat
-  );
-  rail.position.set(7, 3.4, -3);
-  rail.castShadow = true;
-  scene.add(rail);
+// Room label helper — CSS2DObject that floats above the room at floor level.
+// Each label is registered in the module-level `roomLabels` array so callers
+// (e.g. the show-label default toggle) can iterate without traversing.
+// v0.11 will replace the markup with richer HTML (icons, hover details).
+const roomLabels = [];
+function makeLabel(room) {
+  const el = document.createElement('div');
+  el.className = 'room-label';
+  el.innerHTML = `<span class="rl-name">${room.name}</span><span class="rl-area">${room.w * room.d} sq ft</span>`;
+  const obj = new CSS2DObject(el);
+  obj.position.set(room.x + room.w / 2, 0.1, room.z + room.d / 2);
+  obj.userData.roomId = room.id;
+  roomLabels.push(obj);
+  return obj;
 }
 
-// --- Back Patio (north side, where the Back Patio door is)
-{
-  const patioMat = new THREE.MeshStandardMaterial({
-    map: concreteTex.clone(),
-    color: 0xc8b896,
-    roughness: 0.8,
-  });
-  patioMat.map.repeat.set(3, 2);
-  const patio = new THREE.Mesh(
-    new THREE.BoxGeometry(20, 0.4, 8),
-    patioMat
-  );
-  patio.position.set(28, 0.2, FOOTPRINT_D + 4); // north of slab
-  patio.castShadow = true;
-  patio.receiveShadow = true;
-  scene.add(patio);
-}
-
-// --- Driveway (concrete, runs from front of house to north or south curb)
-function makeDrivewayTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#9a9388'; ctx.fillRect(0, 0, 256, 256);
-  // expansion joints (4x4 squares)
-  for (let y = 0; y < 256; y += 64) {
-    ctx.strokeStyle = 'rgba(40,38,32,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, y); ctx.lineTo(256, y);
-    ctx.stroke();
-  }
-  for (let x = 0; x < 256; x += 64) {
-    ctx.strokeStyle = 'rgba(40,38,32,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x, 0); ctx.lineTo(x, 256);
-    ctx.stroke();
-  }
-  // cracks
-  for (let i = 0; i < 25; i++) {
-    ctx.strokeStyle = `rgba(30,28,22,${0.3 + Math.random()*0.4})`;
-    ctx.lineWidth = 0.5 + Math.random();
-    ctx.beginPath();
-    ctx.moveTo(Math.random()*256, Math.random()*256);
-    ctx.lineTo(Math.random()*256, Math.random()*256);
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-const drivewayTex = makeDrivewayTexture();
-
-// --- Sidewalk (3' wide, brushed concrete)
-function makeSidewalkTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#bbb5a8'; ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 80; i++) {
-    ctx.strokeStyle = `rgba(${110 + Math.random()*30},${105+Math.random()*25},${95+Math.random()*20},0.3)`;
-    ctx.lineWidth = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(0, Math.random()*256);
-    ctx.bezierCurveTo(64, Math.random()*256, 192, Math.random()*256, 256, Math.random()*256);
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-const sidewalkTex = makeSidewalkTexture();
-
-// Place driveway (south side, 12ft wide, runs from front to street)
-{
-  const drivewayMat = new THREE.MeshStandardMaterial({
-    map: drivewayTex,
-    color: 0xffffff,
-    roughness: 0.85,
-    metalness: 0.0,
-  });
-  drivewayTex.repeat.set(2, 5);
-  const driveway = new THREE.Mesh(
-    new THREE.BoxGeometry(12, 0.15, 30),
-    drivewayMat
-  );
-  driveway.position.set(36, 0.075, -12); // drives from east side of house south
-  driveway.rotation.y = -Math.PI * 0.05; // slight angle for natural look
-  driveway.receiveShadow = true;
-  scene.add(driveway);
-
-  // Curb along the driveway edge
-  const curb = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.5, 30),
-    new THREE.MeshStandardMaterial({ color: 0xb3ab9f, roughness: 0.7 })
-  );
-  curb.position.set(42, 0.25, -12);
-  curb.castShadow = true;
-  scene.add(curb);
-}
-
-// Place sidewalk along south side of house (3ft wide)
-{
-  const sidewalkMat = new THREE.MeshStandardMaterial({
-    map: sidewalkTex,
-    color: 0xffffff,
-    roughness: 0.75,
-  });
-  sidewalkTex.repeat.set(8, 1);
-  const sidewalk = new THREE.Mesh(
-    new THREE.BoxGeometry(FOOTPRINT_W, 0.15, 3.5),
-    sidewalkMat
-  );
-  sidewalk.position.set(FOOTPRINT_W/2, 0.075, -6);
-  sidewalk.receiveShadow = true;
-  scene.add(sidewalk);
-
-  // Driveway crossing (where sidewalk meets driveway)
-  const apron = new THREE.Mesh(
-    new THREE.BoxGeometry(12, 0.15, 3.5),
-    sidewalkMat
-  );
-  apron.position.set(36, 0.075, -6);
-  apron.receiveShadow = true;
-  scene.add(apron);
-}
-
-// Track placements for the estimator asset counts
-ASSET_PLACEMENTS.push(
-  { kind: 'porch',     area: 14 * 6 },
-  { kind: 'patio',     area: 20 * 8 },
-  { kind: 'driveway',  area: 12 * 30 },
-  { kind: 'sidewalk',  area: FOOTPRINT_W * 3.5 },
-  { kind: 'curb',      area: 30 },
-);
-
-// Procedural wood-floor texture
-
-const baseboardMat = new THREE.MeshStandardMaterial({
-  map: trimTex,
-  color: 0xffffff,
-  roughness: 0.55,
-  metalness: 0.05,
-  envMapIntensity: 0.7,
-});
-const crownMat = new THREE.MeshStandardMaterial({
-  map: trimTex,
-  color: 0xffffff,
-  roughness: 0.5,
-  metalness: 0.08,
-  envMapIntensity: 0.8,
-});
 const wallMat = new THREE.MeshStandardMaterial({
   map: sheetrockTex.clone(),
-  color: 0xe6dfd0,                 // warm white sheetrock
+  color: 0xe6dfd0,
   roughness: 0.95,
   metalness: 0.0,
   envMapIntensity: 0.25,
 });
 const wallMatInterior = new THREE.MeshStandardMaterial({
   map: sheetrockTex.clone(),
-  color: 0xf3eadd,                 // slightly cooler interior
+  color: 0xf3eadd,
   roughness: 0.95,
   metalness: 0.0,
   envMapIntensity: 0.2,
 });
 
-// Wall inventory collected for the measurement tool
-const WALL_MESHES = [];
+//   ───────────────────────────────────────────────────────────────
+//   The big inline construction block that used to live here
+//   (slab → floors → walls → foundation assets → doors → windows
+//   → ceiling → gable roof → room-box furniture → labels)
+//   was deleted. With state.js + buildHouse(plan) in place,
+//   the scene is built from data. The original ~740 lines were
+//   preserved at /tmp/app_old_block.bak during this refactor in
+//   case v0.11 wants to port any specific detail (e.g. the full
+//   ASSET_PLACEMENTS rules, the textured gable roof) onto the
+//   plan-driven path.
+//   ───────────────────────────────────────────────────────────────
 
-function addWall(ax, az, aw, ad, isOuter = null) {
-  if (isOuter === null) isOuter = (
-    (ax === 0) || (ax + aw === FOOTPRINT_W) ||
-    (az === 0) || (az + ad === FOOTPRINT_D)
-  );
-  const mat = isOuter ? wallMat : wallMatInterior;
-  const geo = new THREE.BoxGeometry(aw, WALL_H, ad);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(ax + aw/2, WALL_H/2, az + ad/2);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.name = isOuter ? `wall-outer-${ax}-${az}` : `wall-inner-${ax}-${az}`;
-  mesh.userData = {
-    kind: 'wall',
-    isOuter,
-    length: Math.max(aw, ad),
-    height: WALL_H,
-    area: Math.max(aw, ad) * WALL_H * 2,    // both sides
-    ax, az, aw, ad,
-  };
-  WALL_MESHES.push(mesh);
-  INTERACTABLE.push(mesh);
-  scene.add(mesh);
-
-  // Baseboard — 4" tall, 0.25" thick, hugging the bottom of the wall
-  const BASEB_H = 0.35;
-  const BASEB_D = 0.05;
-  let baseX, baseZ, baseW, baseD;
-  if (aw > ad) {
-    // Horizontal wall (runs along X)
-    baseX = ax + aw/2; baseZ = az + (ad - BASEB_D)/2;
-    baseW = aw; baseD = BASEB_D;
-  } else {
-    // Vertical wall (runs along Z)
-    baseX = ax + (aw - BASEB_D)/2; baseZ = az + ad/2;
-    baseW = BASEB_D; baseD = ad;
-  }
-  const baseboard = new THREE.Mesh(
-    new THREE.BoxGeometry(baseW, BASEB_H, baseD),
-    baseboardMat
-  );
-  baseboard.position.set(baseX, BASEB_H/2, baseZ);
-  baseboard.castShadow = true;
-  baseboard.receiveShadow = true;
-  scene.add(baseboard);
-
-  // Crown molding — at the top, slightly inset, 5" tall, 1" deep
-  const CROWN_H = 0.45;
-  const CROWN_D = 0.1;
-  let cX, cZ, cW, cD, cY;
-  if (aw > ad) {
-    cX = ax + aw/2; cZ = az + (ad - CROWN_D)/2;
-    cW = aw; cD = CROWN_D;
-    cY = WALL_H - CROWN_H/2;
-  } else {
-    cX = ax + (aw - CROWN_D)/2; cZ = az + ad/2;
-    cW = CROWN_D; cD = ad;
-    cY = WALL_H - CROWN_H/2;
-  }
-  const crown = new THREE.Mesh(
-    new THREE.BoxGeometry(cW, CROWN_H, cD),
-    crownMat
-  );
-  crown.position.set(cX, cY, cZ);
-  crown.castShadow = true;
-  crown.receiveShadow = true;
-  scene.add(crown);
-
-  return mesh;
-}
-
-// Track all wall meshes added (for measurement + estimator)
-const addedWalls = [];
-
-// Outer walls (explicit isOuter=true)
-addWall(0,             0,              FOOTPRINT_W, WALL_T, true); // south
-addWall(0,             FOOTPRINT_D - WALL_T, FOOTPRINT_W, WALL_T, true); // north
-addWall(0,             0,              WALL_T, FOOTPRINT_D, true); // west
-addWall(FOOTPRINT_W - WALL_T, 0,       WALL_T, FOOTPRINT_D, true); // east
-
-// Track them
-addedWalls.push(...WALL_MESHES.slice());
-
-// Interior walls — derived from ROOMS adjacency. Each interior wall
-// remembers the two rooms it separates (so drywall counts and click
-// measurements can be attributed to a room).
-const interiorWalls = [];
-function pushInterior(meta) {
-  interiorWalls.push(meta);
-  const wall = addWall(meta.ax, meta.az, meta.aw, meta.ad, false);
-  wall.userData.rooms = [meta.roomA, meta.roomB];
-}
-for (let i = 0; i < ROOMS.length; i++) {
-  for (let j = i + 1; j < ROOMS.length; j++) {
-    const a = ROOMS[i], b = ROOMS[j];
-    const ax2 = a.x + a.w, az2 = a.z + a.d;
-    const bx2 = b.x + b.w, bz2 = b.z + b.d;
-    let added = false;
-
-    if (Math.abs(az2 - b.z) < 0.01) {
-      const overlapX = Math.min(ax2, bx2) - Math.max(a.x, b.x);
-      if (overlapX > 0) {
-        pushInterior({ ax: Math.max(a.x, b.x), az: az2 - WALL_T/2, aw: overlapX, ad: WALL_T, roomA: a.id, roomB: b.id });
-        added = true;
-      }
-    }
-    if (Math.abs(a.z - bz2) < 0.01 && !added) {
-      const overlapX = Math.min(ax2, bx2) - Math.max(a.x, b.x);
-      if (overlapX > 0) {
-        pushInterior({ ax: Math.max(a.x, b.x), az: a.z - WALL_T/2, aw: overlapX, ad: WALL_T, roomA: a.id, roomB: b.id });
-        added = true;
-      }
-    }
-    if (Math.abs(ax2 - b.x) < 0.01 && !added) {
-      const overlapZ = Math.min(az2, bz2) - Math.max(a.z, b.z);
-      if (overlapZ > 0) {
-        pushInterior({ ax: ax2 - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ, roomA: a.id, roomB: b.id });
-        added = true;
-      }
-    }
-    if (Math.abs(a.x - bx2) < 0.01 && !added) {
-      const overlapZ = Math.min(az2, bz2) - Math.max(a.z, b.z);
-      if (overlapZ > 0) {
-        pushInterior({ ax: a.x - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ, roomA: a.id, roomB: b.id });
-      }
-    }
-  }
-}
-
-// ------------------------------------------------------------
-//   DOORS
-//   Each door = a dark frame cutout + a wood plank
-// ------------------------------------------------------------
-function addDoor(d) {
-  const axis = d.axis;
-  const halfW = d.w / 2;
-  const xc = d.x;
-  const zc = d.z;
-  const isFlip = !!d.flip;
-  const zPos = (axis === 'z') ? (isFlip ? zc + WALL_T/2 : zc - WALL_T/2) : zc;
-  const xPos = (axis === 'x') ? zc : xc - halfW;
-
-  // Frame (slightly darker than wall, so it reads as a hole)
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.7 });
-  if (axis === 'z') {
-    const fH = new THREE.Mesh(new THREE.BoxGeometry(d.w, 0.2, WALL_T * 1.05), frameMat);
-    fH.position.set(xc, 0.1, zPos);
-    scene.add(fH);
-    const fT = new THREE.Mesh(new THREE.BoxGeometry(d.w, 0.2, WALL_T * 1.05), frameMat);
-    fT.position.set(xc, WALL_H - 0.1, zPos);
-    scene.add(fT);
-  } else {
-    const fH = new THREE.Mesh(new THREE.BoxGeometry(WALL_T * 1.05, 0.2, d.w), frameMat);
-    fH.position.set(xPos + WALL_T/2, 0.1, xc);
-    scene.add(fH);
-    const fT = new THREE.Mesh(new THREE.BoxGeometry(WALL_T * 1.05, 0.2, d.w), frameMat);
-    fT.position.set(xPos + WALL_T/2, WALL_H - 0.1, xc);
-    scene.add(fT);
-  }
-
-  // Door leaf (wood plank, slightly ajar for visibility)
-  const plank = new THREE.Mesh(
-    new THREE.BoxGeometry(d.w - 0.1, WALL_H - 0.5, 0.15),
-    new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.7 })
-  );
-  if (axis === 'z') {
-    plank.position.set(xc, (WALL_H - 0.5)/2, zPos + (isFlip ? 0.1 : -0.1));
-    plank.rotation.y = THREE.MathUtils.degToRad(20);
-  } else {
-    plank.position.set(xPos + WALL_T/2 + 0.1, (WALL_H - 0.5)/2, xc);
-    plank.rotation.y = -Math.PI/2 + THREE.MathUtils.degToRad(-20);
-  }
-  plank.castShadow = true;
-  plank.userData = { kind: 'door', w: d.w, label: d.label, isExterior: d.kind === 'exterior' };
-  plank.name = `door-${d.label.toLowerCase().replace(/\s+/g, '-')}`;
-  INTERACTABLE.push(plank);
-  scene.add(plank);
-}
-DOORS.forEach(addDoor);
-
-// ------------------------------------------------------------
-//   WINDOWS
-//   Frame + dark glass pane (slightly inset)
-// ------------------------------------------------------------
-function addWindow(w) {
-  // PBR glass — high reflectivity, smooth
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0xaad8ff,
-    roughness: 0.02,
-    metalness: 0.0,
-    transparent: true,
-    opacity: 0.55,
-    transmission: 0.7,           // PBR transmission (requires physical material)
-    ior: 1.45,
-    envMapIntensity: 1.5,
-  });
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: 0xe8e2d4,
-    roughness: 0.5,
-    metalness: 0.05,
-  });
-  let glass, frame, sill;
-  if (w.axis === 'z') {
-    glass = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4, 0.05), glassMat);
-    glass.position.set(w.x, 5, w.z);
-    scene.add(glass);
-    frame = new THREE.Mesh(new THREE.BoxGeometry(w.w, 4.2, WALL_T * 1.05), frameMat);
-    frame.position.set(w.x, 5, w.z);
-    scene.add(frame);
-    sill = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.3, 0.15, 0.6), crownMat);
-    sill.position.set(w.x, 2.9, w.z);
-    scene.add(sill);
-  } else {
-    glass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 4, w.w), glassMat);
-    glass.position.set(w.z, 5, w.x);
-    scene.add(glass);
-    frame = new THREE.Mesh(new THREE.BoxGeometry(WALL_T * 1.05, 4.2, w.w), frameMat);
-    frame.position.set(w.z, 5, w.x);
-    scene.add(frame);
-    sill = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.15, w.w + 0.3), crownMat);
-    sill.position.set(w.z, 2.9, w.x);
-    scene.add(sill);
-  }
-  // Make glass clickable (use the glass mesh as the representer)
-  glass.userData = { kind: 'window', w: w.w, label: w.label };
-  glass.name = `window-${w.label.toLowerCase().replace(/\s+/g, '-')}`;
-  INTERACTABLE.push(glass);
-}
-WINDOWS.forEach(addWindow);
-
-// ------------------------------------------------------------
-//   CEILING (flat — gable is added below)
-// ------------------------------------------------------------
-const ceiling = new THREE.Mesh(
-  new THREE.BoxGeometry(FOOTPRINT_W, 0.1, FOOTPRINT_D),
-  new THREE.MeshStandardMaterial({ color: 0xf2eee5, roughness: 0.9 })
-);
-ceiling.position.set(FOOTPRINT_W/2, WALL_H + 0.05, FOOTPRINT_D/2);
-ceiling.castShadow = true;
-ceiling.receiveShadow = true;
-scene.add(ceiling);
-
-// ------------------------------------------------------------
-//   ROOF — gable
-// ------------------------------------------------------------
-// Procedural asphalt shingle texture
-function makeShingleTexture(size = 256) {
-  const c = document.createElement('canvas'); c.width = c.height = size;
-  const ctx = c.getContext('2d');
-  // dark base
-  ctx.fillStyle = '#3d2a1c'; ctx.fillRect(0, 0, size, size);
-  // overlapping shingles (rows offset)
-  const rows = 16;
-  const shingleH = size / rows;
-  for (let r = 0; r < rows; r++) {
-    const yOff = r * shingleH;
-    const xStagger = (r % 2) * (size / 2);
-    for (let x = -size/2; x < size + size/2; x += size / 4) {
-      // 4 shingles per row, half-width each so they overlap
-      const baseX = x + xStagger;
-      // gradient shingle (lighter at top, darker at bottom)
-      const grad = ctx.createLinearGradient(0, yOff, 0, yOff + shingleH);
-      grad.addColorStop(0, `rgba(${90 + Math.random()*30}, ${56 + Math.random()*20}, ${32 + Math.random()*15}, 0.95)`);
-      grad.addColorStop(1, `rgba(${30 + Math.random()*15}, ${18 + Math.random()*10}, ${10 + Math.random()*8}, 0.95)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(baseX, yOff, size / 4 + 4, shingleH + 0.5);
-      // shadow line at bottom
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(baseX, yOff + shingleH - 1, size / 4 + 4, 2);
-    }
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(6, 4);
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return t;
-}
-const shingleTex = makeShingleTexture();
-
-function makeGable() {
-  const halfSpan = FOOTPRINT_W / 2;
-  const ridgeY = WALL_H + ROOF_PITCH;
-
-  // Build the two slope planes as a single BufferGeometry for clean shadows
-  const verts = new Float32Array([
-    // West slope (x: 0..halfSpan)
-    0,           WALL_H, 0,
-    halfSpan,    ridgeY,  0,
-    halfSpan,    ridgeY,  FOOTPRINT_D,
-    0,           WALL_H, FOOTPRINT_D,
-    // East slope (x: halfSpan..FOOTPRINT_W)
-    halfSpan,    ridgeY,  0,
-    FOOTPRINT_W, WALL_H, 0,
-    FOOTPRINT_W, WALL_H, FOOTPRINT_D,
-    halfSpan,    ridgeY,  FOOTPRINT_D,
-  ]);
-  const idx = [
-    0,1,2, 0,2,3,        // west slope (normal facing up-out)
-    4,5,6, 4,6,7,        // east slope
-  ];
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  // Double-sided so we can also see the roof from inside if camera enters
-  return new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      map: shingleTex,
-      color: 0x6b4632,
-      roughness: 0.85,
-      metalness: 0.0,
-      envMapIntensity: 0.5,
-      side: THREE.DoubleSide,
-      transparent: false,
-    })
-  );
-}
-const roof = makeGable();
-roof.castShadow = true;
-roof.receiveShadow = true;
-roof.name = 'roof';
-roof.userData = {
-  kind: 'roof',
-  area: 2 * FOOTPRINT_D * Math.sqrt(Math.pow(FOOTPRINT_W/2, 2) + Math.pow(ROOF_PITCH, 2)),
-  pitchRise: ROOF_PITCH,
-  pitchRun: FOOTPRINT_W / 2,
+// Placeholder for legacy references (roof.userData.area in computeEstimate).
+// v0.11 builds a real gable roof from plan.footprint — for now we fake
+// the estimate to use 1.1 × footprint area as the roof footprint.
+const roof = {
+  userData: {
+    area: (state.house.plan.footprint.w * state.house.plan.footprint.d) * 1.15,
+  },
 };
-INTERACTABLE.push(roof);
-scene.add(roof);
 
-// Gable ends (triangle facias): same sheetrock PBR
-const gableMat = new THREE.MeshStandardMaterial({
-  map: sheetrockTex.clone(),
-  color: 0xebe0d0,
-  roughness: 0.95,
-  metalness: 0.0,
-  envMapIntensity: 0.3,
-});
-{
-  // South gable
-  const sGeo = new THREE.BufferGeometry();
-  sGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    0, WALL_H, 0,
-    FOOTPRINT_W, WALL_H, 0,
-    FOOTPRINT_W/2, WALL_H + ROOF_PITCH, 0,
-  ]), 3));
-  sGeo.setIndex([0,1,2]);
-  sGeo.computeVertexNormals();
-  const s = new THREE.Mesh(sGeo, gableMat);
-  s.position.z = 0;
-  scene.add(s);
+// Placeholder for legacy reference in computeEstimate() (foundation/porch/
+// patio/driveway/sidewalk areas). v0.10 only models the foundation strip.
+// v0.11 will port the full ASSET_PLACEMENTS rules back as configurable
+// settings the user can edit per plan.
+const ASSET_PLACEMENTS = [];
 
-  // North gable
-  const nGeo = new THREE.BufferGeometry();
-  nGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    0, WALL_H, 0,
-    FOOTPRINT_W/2, WALL_H + ROOF_PITCH, 0,
-    FOOTPRINT_W, WALL_H, 0,
-  ]), 3));
-  nGeo.setIndex([0,1,2]);
-  nGeo.computeVertexNormals();
-  const n = new THREE.Mesh(nGeo, gableMat);
-  n.position.z = FOOTPRINT_D;
-  scene.add(n);
-}
-
-// ------------------------------------------------------------
-//   FURNITURE (lightweight proxies — read "this is a room")
-// ------------------------------------------------------------
-const matCouch = new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8 });
-const matBed = new THREE.MeshStandardMaterial({ color: 0x9b8f8a, roughness: 0.85 });
-const matFridge = new THREE.MeshStandardMaterial({ color: 0xdde0e3, roughness: 0.4, metalness: 0.4 });
-const matTable = new THREE.MeshStandardMaterial({ color: 0xa87f4a, roughness: 0.7 });
-const matToilet = new THREE.MeshStandardMaterial({ color: 0xf6f4ee, roughness: 0.3 });
-const matRug = new THREE.MeshStandardMaterial({ color: 0xa14b30, roughness: 0.95 });
-
-function addBox(parent, w, h, d, mat, pos) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(pos[0], pos[1], pos[2]);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  parent.add(m);
-  return m;
-}
-
-// Living
-const living = new THREE.Group();
-addBox(living, 8, 1.5, 3, matCouch, [10, 0.75, 6]);
-addBox(living, 5, 1, 4, matRug, [9, 0.51, 9]);  // rug under the couch
-addBox(living, 4, 0.8, 2, matTable, [10, 0.4, 11]);
-scene.add(living);
-
-// Kitchen
-const kitchen = new THREE.Group();
-addBox(kitchen, 0.8, 3.2, 12, matTable, [27, 1.6, 9]);   // island
-addBox(kitchen, 5, 3, 2.2, matFridge, [22, 1.5, 14]);
-addBox(kitchen, 8, 2, 1.8, new THREE.MeshStandardMaterial({ color: 0x6b5340, roughness: 0.7 }), [27, 1, 1]);
-scene.add(kitchen);
-
-// Master
-const master = new THREE.Group();
-addBox(master, 6, 2, 7, matBed, [40, 1, 9]);
-addBox(master, 2, 1.5, 2, matTable, [44, 0.75, 14]);
-scene.add(master);
-
-// Bed 2 / 3
-const bed2 = new THREE.Group();
-addBox(bed2, 5, 2, 6, matBed, [7, 1, 24]);
-scene.add(bed2);
-
-const bed3 = new THREE.Group();
-addBox(bed3, 5, 2, 6, matBed, [20, 1, 24]);
-scene.add(bed3);
-
-// Bathroom
-const bath = new THREE.Group();
-addBox(bath, 1.5, 1, 2, matToilet, [29, 0.5, 26]);
-addBox(bath, 4, 1.8, 2, matTable, [29, 0.9, 22]);
-scene.add(bath);
-
-// ------------------------------------------------------------
-//   ROOM LABELS — CSS2D  (visible only in orbit mode)
-// ------------------------------------------------------------
-function makeLabel(room) {
-  const el = document.createElement('div');
-  el.className = 'room-label';
-  el.innerHTML = `<span class="rl-name">${room.name}</span><span class="rl-area">${room.w * room.d} sq ft</span>`;
-  const obj = new CSS2DObject(el);
-  // Place the label at the floor level (y=0.1) so it always floats just above the room
-  // and is clearly visible from any orbit angle (including looking down at the roof)
-  obj.position.set(room.x + room.w/2, 0.1, room.z + room.d/2);
-  obj.userData.roomId = room.id;
-  return obj;
-}
-const labels = ROOMS.map(makeLabel);
-labels.forEach(l => scene.add(l));
+// Build the initial scene from the demo plan. This single call sets up
+// every dynamic mesh inside houseGroup. Future loadPlan(plan) swaps it
+// out via GENESIS.loadPlan() (which calls this same function internally).
+buildHouse(state.house.plan);
 
 // ------------------------------------------------------------
 //   CONTROLS — orbit vs. walk
@@ -1191,7 +765,7 @@ btnReset.addEventListener('click', () => {
 });
 
 // Show room labels by default
-labels.forEach(l => l.visible = true);
+roomLabels.forEach(l => l.visible = true);
 
 // ------------------------------------------------------------
 //   ROOM INFO PANEL — populate
@@ -1752,7 +1326,6 @@ async function handleUploadedFile(file) {
 // home; the panels reflect the new plan. Foundation laid; geometry swap
 // is the next foundation item.
 function rebuildSceneFromPlan(plan) {
-  console.log('[plan] rebuild requested', describe());
   if (!state.house) return;
 
   // The stats card ("6 rooms · 1236 sq ft · 5 doors · 10 windows") under the canvas
@@ -1910,7 +1483,15 @@ animate();
 window.GENESIS = {
   // ----- state bridge -----
   state,                         // the state module's state object
-  loadPlan,                      // (rawPlan) → installs + returns state.house
+  loadPlan(plan) {
+    // Wrap the state module's loadPlan so callers automatically get a
+    // full scene rebuild + side-panel refresh. Returning the same shape
+    // (state.house) keeps the API predictable.
+    const result = loadPlan(plan);
+    buildHouse(state.house.plan);
+    rebuildSceneFromPlan(state.house.plan);
+    return result;
+  },
   describe,                      // () → human-readable summary of current house
   getRoom, getWall, getOpening,  // id lookups
 
@@ -1931,8 +1512,9 @@ window.GENESIS = {
   },
 };
 
-// Expose plan fixtures for devtools ("GENESIS.demoPlan()" → installs the demo)
+// Expose plan fixtures for devtools ("GENESIS.demoPlan()" → reinstalls the demo plan)
 window.GENESIS.demoPlan = async () => {
   const mod = await import('./state.js');
-  return mod.loadPlan(mod.DEMO_PLAN);
+  // Reuse the wrapped loadPlan so the demo swap also rebuilds + refreshes UI.
+  return window.GENESIS.loadPlan(mod.DEMO_PLAN);
 };
