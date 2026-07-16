@@ -3,6 +3,12 @@
 > Read this before adding features. The codebase is structured around one
 > principle: **data is the source of truth, geometry is derived from it.**
 
+**Companion docs**
+- **[ARCHITECTURE-pdf.md](ARCHITECTURE-pdf.md)** — how a real PDF
+  blueprint becomes a `loadPlan(plan)`-able plan JSON. v1.x items.
+- **[ARCHITECTURE-tests.md](ARCHITECTURE-tests.md)** *coming soon* —
+  what `tests.html` covers, how to add tests, where it sits in CI.
+
 ```
             ┌──────────────────────────────────────┐
             │           PLAN (JSON)                │
