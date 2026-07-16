@@ -715,6 +715,139 @@ a { color: inherit; text-decoration: none; }
 .drop-card p { margin: 10px 0 0; font-weight: 600; font-size: 17px; }
 .drop-card .drop-sub { color: var(--text-muted); font-weight: 400; font-size: 12.5px; margin-top: 6px; }
 
+/* Trace overlay — v2.0 polygon capture UX */
+.trace-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: rgba(8, 12, 22, 0.86);
+  backdrop-filter: blur(6px);
+  z-index: 35;
+  padding: 28px;
+}
+.trace-overlay.hidden { display: none; }
+.trace-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius);
+  background: rgba(15,20,32,0.96);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+.trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.trace-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.trace-x {
+  background: none;
+  border: 0;
+  color: rgba(255,255,255,0.7);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 8px;
+}
+.trace-x:hover { color: var(--accent); }
+.trace-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.trace-stage.hidden { display: none; }
+#trace-stage-upload {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: 40px;
+}
+.trace-stage p { color: var(--text-muted); margin: 0; }
+.trace-hint { color: rgba(255,255,255,0.4); font-size: 12.5px; }
+#trace-stage-draw {
+  flex-direction: row;
+  padding: 12px;
+  gap: 12px;
+}
+.trace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 0 0 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 10px;
+}
+.trace-toolbar span { color: var(--text-muted); font-size: 13px; flex: 1; }
+.trace-canvas-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  background: rgba(255,255,255,0.96);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+}
+#trace-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+.trace-sidepanel {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 4px 4px 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.trace-sidepanel label { display: flex; flex-direction: column; gap: 6px; }
+.trace-sidepanel input[type="text"],
+.trace-sidepanel input[type="number"] {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+  width: 100%;
+}
+.trace-cal-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trace-cal-row input { width: 60px; }
+.trace-rooms {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.trace-rooms li { padding: 2px 0; }
+.trace-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+.trace-actions .btn { flex: 1; }
+
 .vc-btn.hidden { display: none; }
 
 .vc-btn .pdf-icon { display: inline-block; vertical-align: middle; }

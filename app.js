@@ -20,6 +20,7 @@ import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 // `state.house.plan` is the canonical plan; `state.house.walls` the wall list,
 // `state.stats` the derived counters. Everything below reads from these.
 import { state, loadPlan, getRoom, getWall, getOpening, describe } from './state.js';
+import { createTracer } from './tracer.js';
 
 // Genesis v0.5 — PBR materials, HDR env, shadows + SSAO, procedural trim,
 // measurement tool, estimator, GLB export.
@@ -1473,8 +1474,13 @@ function rebuildSceneFromPlan(plan) {
   // The big number in the top-left ("6 rooms / 24 walls")
   const statRooms = document.getElementById('stat-rooms');
   if (statRooms) statRooms.textContent = state.stats.roomCount;
+  const statSqft = document.getElementById('stat-sqft');
+  if (statSqft) statSqft.textContent = state.stats.floorAreaSqFt.toLocaleString();
   const statWalls = document.getElementById('stat-walls');
   if (statWalls) statWalls.textContent = state.stats.interiorWalls + state.stats.exteriorWalls;
+  // The plan title above the canvas
+  const demoTitle = document.getElementById('demo-title');
+  if (demoTitle) demoTitle.textContent = `${state.house.plan.name} · Plan #${state.house.plan.planNumber || 1}`;
 
   // Side-panel ROOMS list
   const roomsList = document.getElementById('rooms-list');
@@ -1525,6 +1531,240 @@ viewerEl.addEventListener('drop', e => {
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (f) handleUploadedFile(f);
 });
+
+// =============================================================
+//   TRACE OVERLAY — v2.0 no-ML polygon capture
+//
+// User uploads an image (PNG/JPG/PDF), clicks corners to define
+// rooms, calibrates a known dimension, and exports a plan JSON that
+// GENESIS.loadPlan() can render. Uses tracer.js for the data layer.
+// =============================================================
+const traceOverlay = document.getElementById('trace-overlay');
+const traceStageUpload = document.getElementById('trace-stage-upload');
+const traceStageDraw = document.getElementById('trace-stage-draw');
+const traceFileInput = document.getElementById('trace-file');
+const tracePickFile = document.getElementById('trace-pick-file');
+const traceCanvas = document.getElementById('trace-canvas');
+const traceHelp = document.getElementById('trace-help');
+const traceCloseRoomBtn = document.getElementById('trace-close-room');
+const traceClearOpenBtn = document.getElementById('trace-clear-open');
+const traceCloseBtn = document.getElementById('trace-close');
+const traceAbortBtn = document.getElementById('trace-abort');
+const traceFinishBtn = document.getElementById('trace-finish');
+const traceCalPx = document.getElementById('trace-cal-pixel');
+const traceCalFt = document.getElementById('trace-cal-feet');
+const traceCalSet = document.getElementById('trace-cal-set');
+const tracePlanName = document.getElementById('trace-plan-name');
+const traceRoomsList = document.getElementById('trace-rooms-list');
+
+let traceCtx = null;
+let tracer = null;
+let traceImage = null;
+
+function openTracer() {
+  traceOverlay.classList.remove('hidden');
+  traceOverlay.setAttribute('aria-hidden', 'false');
+  tracer = createTracer();
+  traceImage = null;
+  traceStageUpload.classList.remove('hidden');
+  traceStageDraw.classList.add('hidden');
+}
+function closeTracer() {
+  traceOverlay.classList.add('hidden');
+  traceOverlay.setAttribute('aria-hidden', 'true');
+  tracer = null;
+  traceImage = null;
+  traceCtx = null;
+}
+document.getElementById('btn-trace').addEventListener('click', openTracer);
+traceCloseBtn.addEventListener('click', closeTracer);
+traceAbortBtn.addEventListener('click', closeTracer);
+
+tracePickFile.addEventListener('click', () => traceFileInput.click());
+traceFileInput.addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    await loadTraceImage(f);
+  } catch (err) {
+    traceHelp.textContent = `Couldn't read that file: ${err.message}`;
+  }
+  e.target.value = '';
+});
+
+async function loadTraceImage(file) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    // Render first page of PDF to image via pdf.js (already lazy-loaded)
+    const pdfjs = await loadPdfJsOnce();
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const off = document.createElement('canvas');
+    off.width = viewport.width;
+    off.height = viewport.height;
+    await page.render({ canvasContext: off.getContext('2d'), viewport }).promise;
+    traceImage = off;
+  } else {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.src = url;
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+    traceImage = img;
+  }
+  enterDrawStage();
+}
+
+function enterDrawStage() {
+  traceStageUpload.classList.add('hidden');
+  traceStageDraw.classList.remove('hidden');
+  // Size canvas to fit the image at native dimensions, capped at 1200x900
+  const maxW = 1200, maxH = 900;
+  let w = traceImage.width || traceImage.naturalWidth || traceImage.canvas?.width;
+  let h = traceImage.height || traceImage.height || traceImage.canvas?.height;
+  const scale = Math.min(1, maxW / w, maxH / h);
+  traceCanvas.width = Math.floor(w * scale);
+  traceCanvas.height = Math.floor(h * scale);
+  traceCtx = traceCanvas.getContext('2d');
+  drawTraceOverlay();
+  traceHelp.textContent = 'Click to drop wall corners. After 3+ nodes, click Close room.';
+}
+
+function drawTraceOverlay() {
+  if (!traceCtx) return;
+  const { width: w, height: h } = traceCanvas;
+  traceCtx.clearRect(0, 0, w, h);
+  // Background image
+  if (traceImage) {
+    traceCtx.drawImage(traceImage, 0, 0, w, h);
+  } else {
+    traceCtx.fillStyle = '#fff';
+    traceCtx.fillRect(0, 0, w, h);
+  }
+  // Closed rooms — filled polygon + label
+  if (tracer) {
+    for (const r of tracer.rooms) {
+      traceCtx.beginPath();
+      r.polygon.forEach((p, i) => i === 0 ? traceCtx.moveTo(p.x, p.y) : traceCtx.lineTo(p.x, p.y));
+      traceCtx.closePath();
+      traceCtx.fillStyle = 'rgba(0, 200, 255, 0.18)';
+      traceCtx.fill();
+      traceCtx.strokeStyle = 'rgba(0, 200, 255, 0.95)';
+      traceCtx.lineWidth = 2;
+      traceCtx.stroke();
+      // Label at centroid
+      const cen = centroid(r.polygon);
+      traceCtx.fillStyle = '#03222e';
+      traceCtx.font = 'bold 12px system-ui';
+      traceCtx.fillText(r.name, cen.x + 4, cen.y + 4);
+    }
+    // Open polygon (current)
+    const open = tracer.nodes;
+    if (open.length > 0) {
+      traceCtx.beginPath();
+      open.forEach((p, i) => i === 0 ? traceCtx.moveTo(p.x, p.y) : traceCtx.lineTo(p.x, p.y));
+      traceCtx.strokeStyle = 'rgba(255, 90, 0, 0.95)';
+      traceCtx.lineWidth = 2;
+      traceCtx.setLineDash([4, 4]);
+      traceCtx.stroke();
+      traceCtx.setLineDash([]);
+      // Nodes as dots
+      for (const p of open) {
+        traceCtx.beginPath();
+        traceCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        traceCtx.fillStyle = '#ff5a00';
+        traceCtx.fill();
+      }
+    }
+  }
+}
+
+function centroid(poly) {
+  let cx = 0, cz = 0;
+  for (const p of poly) { cx += p.x; cz += p.y; }
+  return { x: cx / poly.length, y: cz / poly.length };
+}
+
+traceCanvas.addEventListener('click', (e) => {
+  if (!tracer) return;
+  const rect = traceCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (traceCanvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (traceCanvas.height / rect.height);
+  tracer.addNode(x, y);
+  drawTraceOverlay();
+  traceCloseRoomBtn.disabled = tracer.nodes.length < 3;
+});
+traceCanvas.addEventListener('mousemove', (e) => {
+  if (!tracer || !tracer.nodes.length) return;
+  const rect = traceCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (traceCanvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (traceCanvas.height / rect.height);
+  drawTraceOverlay();
+  // Draw rubber-band line from last node to cursor
+  const last = tracer.nodes[tracer.nodes.length - 1];
+  traceCtx.beginPath();
+  traceCtx.moveTo(last.x, last.y);
+  traceCtx.lineTo(x, y);
+  traceCtx.strokeStyle = 'rgba(255, 90, 0, 0.5)';
+  traceCtx.lineWidth = 1.5;
+  traceCtx.setLineDash([2, 4]);
+  traceCtx.stroke();
+  traceCtx.setLineDash([]);
+});
+
+traceClearOpenBtn.addEventListener('click', () => {
+  if (!tracer) return;
+  tracer.nodes.length = 0;       // direct clear; keep closed rooms
+  tracer.nodes;                  // no-op read for clarity
+  drawTraceOverlay();
+  traceCloseRoomBtn.disabled = true;
+});
+
+traceCloseRoomBtn.addEventListener('click', () => {
+  if (!tracer) return;
+  const name = (window.prompt && window.prompt('Room name?', `Room ${tracer.rooms.length + 1}`)) || `Room ${tracer.rooms.length + 1}`;
+  tracer.closePolygon(name);
+  drawTraceOverlay();
+  refreshRoomsList();
+  traceCloseRoomBtn.disabled = true;
+});
+
+traceCalSet.addEventListener('click', () => {
+  if (!tracer) return;
+  const px = parseFloat(traceCalPx.value);
+  const ft = parseFloat(traceCalFt.value);
+  if (!(px > 0) || !(ft > 0)) return;
+  tracer.setScale(px, ft);
+  traceHelp.textContent = `Scale set: ${px}px = ${ft}ft (1ft = ${(px/ft).toFixed(2)}px)`;
+});
+
+traceFinishBtn.addEventListener('click', () => {
+  if (!tracer) return;
+  if (!tracer.rooms.length) {
+    traceHelp.textContent = 'Trace at least one room before finishing.';
+    return;
+  }
+  const plan = tracer.exportPlan(tracePlanName.value || 'Traced plan');
+  if (!plan) return;
+  // Sanity: scale defaults to 1 px/ft when unset, so w/d would be in pixels.
+  if (tracer.getScale() === 1) {
+    if (!window.confirm('No scale calibration entered. Rooms will be saved at 1 pixel = 1 foot (a likely wrong measurement). Continue?')) {
+      return;
+    }
+  }
+  window.GENESIS.loadPlan(plan);
+  closeTracer();
+});
+
+function refreshRoomsList() {
+  if (!tracer) return;
+  traceRoomsList.innerHTML = tracer.rooms.map((r, i) =>
+    `<li>${escapeHtml(r.name)} — ${r.polygon.length} corners</li>`).join('');
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 // ------------------------------------------------------------
 //   RENDER LOOP
