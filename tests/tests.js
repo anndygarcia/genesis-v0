@@ -234,6 +234,53 @@ tests.push({
 });
 
 // =====================================================
+//   v1.4 — multi-floor Garcia-style (23 rooms / 2 floors)
+// =====================================================
+
+tests.push({
+  name: 'multi-floor: Garcia plan (23 rooms, 2 floors) validates',
+  async fn() {
+    // Simulate the Garcia plan shape
+    const result = loadPlan({
+      name: 'Garcia',
+      rooms: [
+        { id: 'study', name: 'Study', x: 0, z: 0, w: 12, d: 13.4 },
+        { id: 'master', name: 'Master Bed', x: 35.2, z: 0, w: 15.4, d: 18.2 },
+        { id: 'br3', name: 'Bedroom 3', x: 30, z: 0, w: 13, d: 15, h: 9 },
+        { id: 'br4', name: 'Bedroom 4', x: 9, z: 0, w: 13, d: 15, h: 9 },
+        { id: 'br5', name: 'Bedroom 5', x: 47.5, z: 17.5, w: 11.2, d: 11.2 },
+      ],
+      footprint: { w: 70.4, d: 62.6 },
+      floors: [
+        { name: '1st Floor', rooms: ['study', 'master'], elevation: 0 },
+        { name: '2nd Floor', rooms: ['br3', 'br4', 'br5'], elevation: 10 },
+      ],
+    });
+    assert(result && result.plan, 'Garcia-like plan loads ok');
+    assert(state.house.plan.floors.length === 2, 'Garcia has 2 floors');
+    assert(state.house.plan.rooms.length === 5, 'Garcia-like plan has 5 rooms total');
+    loadPlan(DEMO_PLAN);
+  },
+});
+
+tests.push({
+  name: 'multi-floor: loadPlan auto-assigns floor 1 (Ground) when absent',
+  async fn() {
+    loadPlan({
+      name: 'X',
+      rooms: [
+        { id: 'r1', name: 'R1', x: 0, z: 0, w: 10, d: 10 },
+        { id: 'r2', name: 'R2', x: 10, z: 0, w: 10, d: 10 },
+      ],
+    });
+    assert(state.house.plan.floors.length === 1, 'default to 1 floor when absent');
+    assert(state.house.plan.floors[0].rooms.length === 2, 'ground floor has all rooms');
+    assert(state.house.plan.floors[0].elevation === 0, 'ground at elevation 0');
+    loadPlan(DEMO_PLAN);
+  },
+});
+
+// =====================================================
 //   RUN
 // =====================================================
 

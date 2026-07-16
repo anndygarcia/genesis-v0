@@ -137,91 +137,170 @@ function disposeHouse() {
  * @param {object} plan validated plan (state.house.plan)
  * @returns {object} summary of what was built
  */
+// Build house from a plan. v1.4+ supports multiple floors (plan.floors[])
+// where each floor becomes its own sub-group at y=elevation. The topmost
+// floor receives the roof; lower floors get a deck (no roof).
+//
+// Backwards-compat: if plan.floors is absent, treat all rooms as a
+// single ground floor (current behavior).
 function buildHouse(plan) {
   disposeHouse();
   if (!plan || !Array.isArray(plan.rooms)) return { ok: false, error: 'plan missing rooms' };
 
+  // Normalize floors: if plan has no floors[] entry, use ground floor
+  // containing every room (so existing callers keep working).
+  const floors = (plan.floors && plan.floors.length)
+    ? plan.floors
+    : [{ name: 'Ground', rooms: plan.rooms.map(r => r.id), elevation: 0 }];
+
+  // Build a room-id → room lookup
+  const roomById = {};
+  for (const r of plan.rooms) roomById[r.id] = r;
+
+  // For each floor:
+  //   1. Pick rooms belonging to that floor
+  //   2. Compute a footprint from those rooms' extents
+  //   3. Build a sub-group at y=elevation
+  //   4. Add floor meshes, walls, doors, windows to the sub-group
+  //   5. Topmost floor also gets the roof
   const fp = plan.footprint || { w: 46, d: 30 };
-  const WALL_H_LOCAL = 9;
   const WALL_T_LOCAL = 0.5;
 
-  // ----- Slab -----
-  const slabGeo = new THREE.BoxGeometry(fp.w, 0.4, fp.d);
-  const slab = new THREE.Mesh(slabGeo, slabMat);
-  slab.position.set(fp.w / 2, 0.2, fp.d / 2);
-  slab.castShadow = true;
-  slab.receiveShadow = true;
-  slab.userData = { kind: 'slab', footprint: fp };
-  houseGroup.add(slab);
+  for (let floorIdx = 0; floorIdx < floors.length; floorIdx++) {
+    const f = floors[floorIdx];
+    const elevation = Number(f.elevation) || 0;
+    const floorRooms = f.rooms.map(rid => roomById[rid]).filter(Boolean);
+    if (!floorRooms.length) continue;
 
-  // ----- Per-room floor slabs (color + texture per room) -----
-  // Use the existing floorForRoom helper which derives color from room.color
-  // and texture from room.id (wood/tile/carpet).
-  plan.rooms.forEach(room => {
-    const flGeo = new THREE.BoxGeometry(room.w, 0.05, room.d);
-    const flMat = floorForRoom(room);
-    const fl = new THREE.Mesh(flGeo, flMat);
-    fl.position.set(room.x + room.w / 2, 0.45, room.z + room.d / 2);
-    fl.userData = { kind: 'floor', roomId: room.id };
-    houseGroup.add(fl);
-  });
+    // Create a sub-group for this floor
+    const floorGroup = new THREE.Group();
+    floorGroup.name = `floor-${floorIdx}`;
+    floorGroup.position.set(0, elevation, 0);
+    floorGroup.userData = {
+      kind: 'floor-group',
+      floorName: f.name,
+      floorIndex: floorIdx,
+      elevation,
+      roomIds: floorRooms.map(r => r.id),
+    };
+    houseGroup.add(floorGroup);
 
-  // ----- Walls -----
-  // Outer rectangle (4 walls)
-  addOuterWallOnGroup(plan, 0, 0,        fp.w, WALL_T_LOCAL, 's');      // south
-  addOuterWallOnGroup(plan, 0, fp.d-WALL_T_LOCAL, fp.w, WALL_T_LOCAL, 'n')   // north
-  addOuterWallOnGroup(plan, 0, 0,        WALL_T_LOCAL, fp.d, 'w')      // west
-  addOuterWallOnGroup(plan, fp.w-WALL_T_LOCAL, 0, WALL_T_LOCAL, fp.d, 'e')  // east
+    // Compute this floor's footprint from its rooms.
+    // For the ground floor, prefer plan.footprint (the architectural outer
+    // rectangle); for upper floors, derive from the rooms.
+    let floorFp;
+    if (floorIdx === 0 && plan.footprint) {
+      floorFp = plan.footprint;
+    } else {
+      let fxMax = 0, fzMax = 0;
+      for (const r of floorRooms) {
+        if (r.x + r.w > fxMax) fxMax = r.x + r.w;
+        if (r.z + r.d > fzMax) fzMax = r.z + r.d;
+      }
+      floorFp = { w: fxMax, d: fzMax };
+    }
 
-  // Interior walls from state.house.interiorWalls (canonical derivation)
-  for (const w of state.house.interiorWalls) {
-    addInnerWallOnGroup(w);
+    // ---- Per-floor slab (the deck you walk on) ----
+    if (floorIdx === 0) {
+      // Ground slab is the foundation concrete
+      const slabGeo = new THREE.BoxGeometry(floorFp.w, 0.4, floorFp.d);
+      const slab = new THREE.Mesh(slabGeo, slabMat);
+      slab.position.set(floorFp.w / 2, elevation + 0.2, floorFp.d / 2);
+      slab.castShadow = true;
+      slab.receiveShadow = true;
+      slab.userData = { kind: 'slab', footprint: floorFp };
+      floorGroup.add(slab);
+    } else {
+      // Upper floors: deck (thin board-like panel)
+      const deckGeo = new THREE.BoxGeometry(floorFp.w, 0.4, floorFp.d);
+      const deckMat = new THREE.MeshStandardMaterial({
+        map: floorForRoom(floorRooms[0]).map,
+        color: 0x8d6e63,
+        roughness: 0.85,
+        metalness: 0,
+        side: THREE.FrontSide,
+      });
+      const deck = new THREE.Mesh(deckGeo, deckMat);
+      deck.position.set(floorFp.w / 2, elevation + 0.2, floorFp.d / 2);
+      deck.castShadow = true;
+      deck.receiveShadow = true;
+      deck.userData = { kind: 'floor-deck', floorIndex: floorIdx, footprint: floorFp };
+      floorGroup.add(deck);
+    }
+
+    // ---- Per-room floor tiles ----
+    floorRooms.forEach(room => {
+      const flGeo = new THREE.BoxGeometry(room.w, 0.05, room.d);
+      const flMat = floorForRoom(room);
+      const fl = new THREE.Mesh(flGeo, flMat);
+      fl.position.set(room.x + room.w / 2, elevation + 0.45, room.z + room.d / 2);
+      fl.userData = { kind: 'floor', roomId: room.id, floorIndex: floorIdx };
+      floorGroup.add(fl);
+    });
+
+    // ---- Outer walls (per-floor) ----
+    addOuterWallOnGroup(plan, 0, 0,                           floorFp.w, WALL_T_LOCAL, 's', elevation);
+    addOuterWallOnGroup(plan, 0, floorFp.d - WALL_T_LOCAL,    floorFp.w, WALL_T_LOCAL, 'n', elevation);
+    addOuterWallOnGroup(plan, 0, 0,                           WALL_T_LOCAL, floorFp.d, 'w', elevation);
+    addOuterWallOnGroup(plan, floorFp.w - WALL_T_LOCAL, 0,    WALL_T_LOCAL, floorFp.d, 'e', elevation);
+
+    // ---- Interior walls (from canonical derivation, filtered to this floor) ----
+    for (const w of state.house.interiorWalls) {
+      if (!w.rooms || !w.rooms.some(rid => floorRooms.some(r => r.id === rid))) continue;
+      addInnerWallOnGroup(w, elevation);
+    }
+
+    // ---- Doors & Windows — only on this floor's openings ----
+    const floorDoors = plan.doors.filter(d => floorRooms.some(r => r.id === d.host) || (floorIdx === 0 && !d.host));
+    const floorWindows = plan.windows.filter(w => floorRooms.some(r => r.id === w.host) || (floorIdx === 0 && !w.host));
+    floorDoors.forEach(d => {
+      const hostWall = findHostWall(d);
+      const wallH = hostWall?.height || 9;
+      addDoorOnGroup(d, wallH + elevation);
+    });
+    floorWindows.forEach(w => {
+      const hostWall = findHostWall(w);
+      const wallH = hostWall?.height || 9;
+      addWindowOnGroup(w, wallH + elevation);
+    });
+
+    // ---- Roof on TOPMOST floor only ----
+    if (floorIdx === floors.length - 1) {
+      const roof = buildRoof(plan, elevation, floorRooms);
+      floorGroup.add(roof);
+    }
+
+    // ---- Labels for this floor's rooms ----
+    floorRooms.forEach(room => {
+      const obj = makeLabel(room);
+      // Position the label at floor's elevation level
+      obj.position.set(room.x + room.w / 2, elevation + 0.1, room.z + room.d / 2);
+      floorGroup.add(obj);
+    });
   }
 
-  // ----- Doors — BlackPlane proxy + per-room ceiling positioning.
-  // For each door, look up the wall it's hosted on and use that
-  // wall's actual height so the door sits at floor level on a
-  // 22ft wall or a 9ft wall the same way.
-  plan.doors.forEach(d => {
-    // Find the host wall in state.house.interiorWalls by position+axis
-    const hostWall = findHostWall(d);
-    const wallH = hostWall?.height || WALL_H_LOCAL;
-    addDoorOnGroup(d, wallH);
-  });
-
-  // ----- Windows — same height logic, sill at conventional 4ft.
-  plan.windows.forEach(w => {
-    const hostWall = findHostWall(w);
-    const wallH = hostWall?.height || WALL_H_LOCAL;
-    addWindowOnGroup(w, wallH);
-  });
-
-  // ----- Roof (gable over whole footprint) -----
-  houseGroup.add(buildRoof(plan));
-
-  // The foundation assets (porch/patio/driveway/sidewalk) are still
-  // tied to the demo plan's specific positions; they stay under the
-  // houseGroup so they get cleared and re-added identically.
+  // ---- Foundation assets (porch / patio / driveway / sidewalk) ----
+  // These belong to the ground floor in the rendering order and stay on
+  // the global houseGroup so they share elevation=0 alignment.
   rebuildFoundationAssets(plan);
-
-  // ----- Labels -----
-  plan.rooms.forEach(room => {
-    const obj = makeLabel(room);
-    houseGroup.add(obj);
-  });
 
   return {
     ok: true,
-    rooms: plan.rooms.length,
-    interiorWalls: state.house.interiorWalls.length,
-    exteriorWalls: 4,
-    openings: plan.doors.length + plan.windows.length,
+    floorCount: floors.length,
+    floorNames: floors.map((f, i) => `${i}:${f.name}`),
+    roomCount: plan.rooms.length,
+    roofOverFloor: floors.length - 1,
   };
 }
 
 // ----- Internal helpers (small shims that wrap the existing constructors) -----
+//
+// v1.4 update: helpers now take an `elevation` (the y offset for the
+// floor they sit on) and return the mesh. Caller decides which
+// sub-group receives it. Default elevation = 0 keeps backwards compat
+// for any code that calls without the extra arg.
 
-function addOuterWallOnGroup(plan, x, z, w, d, side) {
+function addOuterWallOnGroup(plan, x, z, w, d, side, elevation = 0) {
   const mat = wallMat;
   // Outer wall height computed from three sources (highest wins):
   //   1. plan.wallOverrides?.[side]   — explicit caller override
@@ -245,7 +324,7 @@ function addOuterWallOnGroup(plan, x, z, w, d, side) {
   }
   const geo = new THREE.BoxGeometry(w, ht, d);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x + w / 2, ht / 2, z + d / 2);
+  mesh.position.set(x + w / 2, elevation + ht / 2, z + d / 2);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = `wall-outer-${side}`;
@@ -254,14 +333,15 @@ function addOuterWallOnGroup(plan, x, z, w, d, side) {
     length: Math.max(w, d),
     height: ht, area: Math.max(w, d) * ht * 2,
     ax: x, az: z, aw: w, ad: d, side,
+    elevation,
     rooms: [],
   };
   WALL_MESHES.push(mesh);
   INTERACTABLE.push(mesh);
-  houseGroup.add(mesh);
+  return mesh;
 }
 
-function addInnerWallOnGroup(w) {
+function addInnerWallOnGroup(w, elevation = 0) {
   // w is { id, length, axis, side, x, z, rooms, height }
   const mat = wallMatInterior;
   const wThick = 0.5;
@@ -277,7 +357,7 @@ function addInnerWallOnGroup(w) {
     posZ = w.z + w.length / 2;
   }
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(posX, wHt / 2, posZ);
+  mesh.position.set(posX, elevation + wHt / 2, posZ);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = w.id;
@@ -289,7 +369,7 @@ function addInnerWallOnGroup(w) {
   };
   WALL_MESHES.push(mesh);
   INTERACTABLE.push(mesh);
-  houseGroup.add(mesh);
+  return mesh;
 }
 
 // door / window helpers — minimal placeholders for v0.10.
@@ -325,7 +405,7 @@ function findHostWall(opening) {
   return null;
 }
 
-function addDoorOnGroup(d, h) {
+function addDoorOnGroup(d, h, elevation = 0) {
   // Create a simple black-plane proxy for now. The full addDoor has many
   // sub-meshes (frame, plank, etc.); porting those is the next slice.
   // h is the wall height; door is 8ft tall starting from the floor.
@@ -335,18 +415,18 @@ function addDoorOnGroup(d, h) {
     new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.0, side: THREE.DoubleSide })
   );
   if (d.axis === 'z') {
-    proxy.position.set(d.x + d.w / 2, doorH / 2, d.z);
+    proxy.position.set(d.x + d.w / 2, elevation + doorH / 2, d.z);
     proxy.rotation.y = Math.PI / 2;
   } else {
-    proxy.position.set(d.x, doorH / 2, d.z + d.w / 2);
+    proxy.position.set(d.x, elevation + doorH / 2, d.z + d.w / 2);
   }
-  proxy.userData = { kind: 'door', id: d.id, label: d.label };
+  proxy.userData = { kind: 'door', id: d.id, label: d.label, elevation };
   proxy.name = `door-${d.id}`;
   INTERACTABLE.push(proxy);
-  houseGroup.add(proxy);
+  return proxy;
 }
 
-function addWindowOnGroup(wd, h) {
+function addWindowOnGroup(wd, h, elevation = 0) {
   // Window is 3ft tall, sits at 4ft sill height (architectural convention).
   const winH = 3;
   const sillH = 4;
@@ -359,15 +439,15 @@ function addWindowOnGroup(wd, h) {
     }),
   );
   if (wd.axis === 'z') {
-    proxy.position.set(wd.x + wd.w / 2, sillH + winH / 2, wd.z);
+    proxy.position.set(wd.x + wd.w / 2, elevation + sillH + winH / 2, wd.z);
     proxy.rotation.y = Math.PI / 2;
   } else {
-    proxy.position.set(wd.x, sillH + winH / 2, wd.z + wd.w / 2);
+    proxy.position.set(wd.x, elevation + sillH + winH / 2, wd.z + wd.w / 2);
   }
-  proxy.userData = { kind: 'window', id: wd.id, label: wd.label };
+  proxy.userData = { kind: 'window', id: wd.id, label: wd.label, elevation };
   proxy.name = `window-${wd.id}`;
   INTERACTABLE.push(proxy);
-  houseGroup.add(proxy);
+  return proxy;
 }
 
 // Foundation assets — for v0.10 we rebuild a tiny version (foundation
@@ -780,12 +860,21 @@ const wallMatInterior = new THREE.MeshStandardMaterial({
 // creating a visible atrium / two-story volume.
 let roofArea = 0;
 let roofPitchRise = ROOF_PITCH;
-function buildRoof(plan) {
+function buildRoof(plan, elevation = 0, floorRooms = null) {
   const fp = plan.footprint || { w: 46, d: 30 };
   const w = fp.w, d = fp.d;
   const halfSpan = w / 2;
   const ridgeY = ROOF_PITCH;     // additional rise above wall top
-  const wallTop = WALL_H;        // walls stop at this y
+  // Wall-top for this floor = max ceiling height of its rooms (default 9).
+  // v2.x will allow per-segment per-side heights.
+  let floorWallH = WALL_H;
+  if (Array.isArray(floorRooms) && floorRooms.length) {
+    for (const r of floorRooms) if ((r.h || 0) > floorWallH) floorWallH = r.h;
+    // But don't take 22ft opening ceilings into account — only capped at 11
+    // so the roof stays sensible.
+    if (floorWallH > 11) floorWallH = 10;
+  }
+  const wallTop = floorWallH + elevation;  // walls stop at this y (this floor)
 
   // Build the set of "open rectangles" that the roof should NOT cover.
   // A room is "open" (no roof above it) when ANY of these is true:
