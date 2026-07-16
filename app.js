@@ -80,8 +80,8 @@ scene.background = new THREE.Color(0x101722);
 scene.fog = new THREE.Fog(0x101722, 60, 180);
 
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
-// High isometric 3/4 view — sees walls + roof + (through windows) room interiors
-camera.position.set(34, 28, 38);
+// High isometric: distance ~50 (was 35) so the whole 46×30 house fits in view.
+camera.position.set(50, 42, 58);
 camera.lookAt(23, 4, 15);
 
 // =============================================================
@@ -187,7 +187,9 @@ function buildHouse(plan) {
     addWindowOnGroup(w, WALL_H_LOCAL);
   });
 
-  // ----- Roof (gable over whole footprint for v0) -----
+  // ----- Roof (gable over whole footprint) -----
+  houseGroup.add(buildRoof(plan));
+
   // The foundation assets (porch/patio/driveway/sidewalk) are still
   // tied to the demo plan's specific positions; they stay under the
   // houseGroup so they get cleared and re-added identically.
@@ -619,6 +621,40 @@ function makeSheetrockTexture(size = 256) {
 // Wall materials — shared between outer / interior walls. Both are
 // sheetrock; differentiation comes from UV tiling and a tiny color shift.
 const sheetrockTex = makeSheetrockTexture();
+// Procedural shingle texture (3-tab asphalt, dark, matte). Used as the
+// gable roof material so the roof reads as architectural, not as a flat
+// shaded plane. Wraps symmetrically (RepeatWrapping) over both slopes.
+function makeShingleTexture(w = 512, h = 256) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  // base (medium brown weatherwood — visible against dark navy bg)
+  ctx.fillStyle = '#6b4a30'; ctx.fillRect(0, 0, w, h);
+  // horizontal shingle pattern — bands of slightly different brown
+  const band = 18;
+  for (let y = 0; y < h; y += band) {
+    const r = 40 + Math.random() * 25;
+    const g = 28 + Math.random() * 14;
+    const b = 18 + Math.random() * 10;
+    ctx.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
+    ctx.fillRect(0, y, w, band - 2);
+    // slight offset horizontal stamp
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, y + band - 2, w, 1);
+    // random granules
+    for (let i = 0; i < 80; i++) {
+      ctx.fillStyle = `rgba(${20 + Math.random()*40},${15 + Math.random()*30},${10 + Math.random()*20},${Math.random()*0.5})`;
+      ctx.fillRect(Math.random() * w, y + Math.random() * band, 2, 1);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+const shingleTex = makeShingleTexture();
 // Room label helper — CSS2DObject that floats above the room at floor level.
 // Each label is registered in the module-level `roomLabels` array so callers
 // (e.g. the show-label default toggle) can iterate without traversing.
@@ -662,14 +698,95 @@ const wallMatInterior = new THREE.MeshStandardMaterial({
 //   plan-driven path.
 //   ───────────────────────────────────────────────────────────────
 
-// Placeholder for legacy references (roof.userData.area in computeEstimate).
-// v0.11 builds a real gable roof from plan.footprint — for now we fake
-// the estimate to use 1.1 × footprint area as the roof footprint.
-const roof = {
-  userData: {
-    area: (state.house.plan.footprint.w * state.house.plan.footprint.d) * 1.15,
-  },
-};
+// Roof — built once per plan inside buildHouse(). The actual meshes go
+// under houseGroup; we keep two module-level references that the rest of
+// the codebase reads:
+//   • roofArea       — total roof surface area (sq ft), updated by buildHouse
+//   • roofPitchRise  — gable pitch in feet (rise over half-span)
+// computeEstimate() reads roofArea to price shingles; buildOpenings
+// reads it for the quantity-takeoff panel.
+let roofArea = 0;
+let roofPitchRise = ROOF_PITCH;
+function buildRoof(plan) {
+  const fp = plan.footprint || { w: 46, d: 30 };
+  const w = fp.w, d = fp.d;
+  const halfSpan = w / 2;
+  const ridgeY = ROOF_PITCH;     // additional rise above wall top
+  const wallTop = WALL_H;        // walls stop at this y
+
+  // Two slope planes as a single BufferGeometry (sharing seams).
+  const verts = new Float32Array([
+    // WEST slope (rising from x=0,wallTop to x=halfSpan,wallTop+pitch)
+    0,          wallTop, 0,
+    halfSpan,   wallTop + ridgeY, 0,
+    halfSpan,   wallTop + ridgeY, d,
+    0,          wallTop, d,
+    // EAST slope (descending)
+    halfSpan,   wallTop + ridgeY, 0,
+    w,          wallTop, 0,
+    w,          wallTop, d,
+    halfSpan,   wallTop + ridgeY, d,
+  ]);
+  const idx = [0,1,2, 0,2,3,   4,5,6, 4,6,7];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  const slopeMat = new THREE.MeshStandardMaterial({
+    map: shingleTex,
+    color: 0x9e6b3f,            // lighter brown tint applied on top of texture
+    roughness: 0.78,
+    metalness: 0,
+    envMapIntensity: 0.7,
+    side: THREE.DoubleSide,
+  });
+  const slopes = new THREE.Mesh(geo, slopeMat);
+  slopes.castShadow = true;
+  slopes.receiveShadow = true;
+
+  // Gable ends (south + north triangle facias) — sheetrock
+  const gableMat = new THREE.MeshStandardMaterial({
+    map: sheetrockTex.clone(),
+    color: 0xebe0d0,
+    roughness: 0.95,
+    metalness: 0,
+    envMapIntensity: 0.3,
+  });
+  const tri = (zPos) => {
+    const a = new Float32Array([
+      0, wallTop, zPos,
+      w, wallTop, zPos,
+      halfSpan, wallTop + ridgeY, zPos,
+    ]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+    g.setIndex([0, 1, 2, 0, 2, 1]);   // both faces
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, gableMat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  };
+  const south = tri(0);
+  const north = tri(d);
+
+  const group = new THREE.Group();
+  group.add(slopes, south, north);
+  group.name = 'roof';
+  group.userData = {
+    kind: 'roof',
+    // Two slopes × length × slant length = total roof area.
+    area: 2 * d * Math.sqrt(halfSpan * halfSpan + ridgeY * ridgeY),
+    pitchRise: ridgeY,
+    pitchRun: halfSpan,
+  };
+
+  // Update module-level mirrors
+  roofArea = group.userData.area;
+  roofPitchRise = ridgeY;
+  return group;
+}
 
 // Placeholder for legacy reference in computeEstimate() (foundation/porch/
 // patio/driveway/sidewalk areas). v0.10 only models the foundation strip.
@@ -686,7 +803,7 @@ buildHouse(state.house.plan);
 //   CONTROLS — orbit vs. walk
 // ------------------------------------------------------------
 const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.target.set(23, 4, 15);
+orbit.target.set(23, 6, 15);  // slightly above foundation so the whole house sits in front of the camera
 orbit.enableDamping = true;
 orbit.dampingFactor = 0.08;
 orbit.minDistance = 6;
@@ -741,9 +858,10 @@ function enterOrbit() {
   walkState.active = false;
   document.exitPointerLock();
   orbit.enabled = true;
-  // Re-aim at the house — high 3/4 isometric (back to v0.1 view)
-  orbit.target.set(23, 4, 15);
-  camera.position.set(34, 28, 38);
+  // Re-aim at the house — high 3/4 isometric (back to v0.1 view, but
+  // farther out so the whole 46×30 house fits in the viewport).
+  orbit.target.set(23, 6, 15);
+  camera.position.set(50, 42, 58);
   btnOrbit.classList.add('active'); btnWalk.classList.remove('active');
   helpOrbit.classList.remove('hidden'); helpWalk.classList.add('hidden');
 }
@@ -984,7 +1102,10 @@ function computeEstimate() {
   const exteriorWallArea = WALL_MESHES
     .filter(w => w.userData.isOuter)
     .reduce((s, w) => s + w.userData.area, 0);
-  const roofArea = roof.userData.area;
+  // roofArea is a module-level let, updated by buildRoof() each rebuild.
+  // Falls back to 1.1 × footprint area if for some reason the roof
+  // wasn't built (shouldn't happen in normal flow).
+  const raftArea = roofArea || (state.house.plan.footprint.w * state.house.plan.footprint.d) * 1.15;
 
   // Industry rules of thumb:
   //   Drywall: 4x8 sheet = 32 sqft, $15-25/sheet
@@ -996,7 +1117,7 @@ function computeEstimate() {
   const drywallSheets = Math.ceil(drywallSqFt / 32);
   const paintGallons = Math.ceil(drywallSqFt / 175);
   const lumberBF = Math.round(interiorWallArea * 4.5);
-  const roofSquares = roofArea / 100;
+  const roofSquares = raftArea / 100;
   const shingleBundles = Math.ceil(roofSquares * 3);
 
   // New placements (Section 10)
@@ -1031,7 +1152,7 @@ function computeEstimate() {
     totalWallArea,
     interiorWallArea,
     exteriorWallArea,
-    roofArea,
+    roofArea: raftArea,
     sidingSqFt,
     foundationArea,
     porchArea,
