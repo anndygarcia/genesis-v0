@@ -15,6 +15,12 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 
+// Genesis state — single source of truth for house geometry.
+// This module holds room/wall/door/window data + derivation helpers.
+// `state.house.plan` is the canonical plan; `state.house.walls` the wall list,
+// `state.stats` the derived counters. Everything below reads from these.
+import { state, loadPlan, getRoom, getWall, getOpening, describe } from './state.js';
+
 // Genesis v0.5 — PBR materials, HDR env, shadows + SSAO, procedural trim,
 // measurement tool, estimator, GLB export.
 
@@ -29,14 +35,11 @@ const ROOF_PITCH = 6;               // gable rise (ft) over half-span
 
 // Rooms are axis-aligned rectangles defined by [x, z, w, d] in feet
 // Centered around a 40×46 ft footprint
-const ROOMS = [
-  { id: 'living',  name: 'Living Room',  x: 0,   z: 0,   w: 20, d: 18, color: 0xfff3e6, accent: '#d97706' },
-  { id: 'kitchen', name: 'Kitchen',      x: 20,  z: 0,   w: 14, d: 18, color: 0xe6f4ff, accent: '#0369a1' },
-  { id: 'master',  name: 'Master Bed',   x: 34,  z: 0,   w: 12, d: 18, color: 0xf3e8ff, accent: '#7c3aed' },
-  { id: 'bed2',    name: 'Bedroom 2',    x: 0,   z: 18,  w: 14, d: 12, color: 0xf3e8ff, accent: '#7c3aed' },
-  { id: 'bed3',    name: 'Bedroom 3',    x: 14,  z: 18,  w: 12, d: 12, color: 0xf3e8ff, accent: '#7c3aed' },
-  { id: 'bath',    name: 'Bathroom',     x: 26,  z: 18,  w: 8,  d: 12, color: 0xe0f7fa, accent: '#0891b2' },
-];
+// Same shape as before — see ./state.js for the canonical DEMO_PLAN.
+// To swap a new home in: `loadPlan(newPlan)` then re-render via `GENESIS.rebuild()`.
+const ROOMS = state.house.plan.rooms;
+const DOORS = state.house.plan.doors;
+const WINDOWS = state.house.plan.windows;
 
 const FOOTPRINT_W = 46;             // x: 0..46
 const FOOTPRINT_D = 30;             // z: 0..30
@@ -67,37 +70,13 @@ const WINDOWS = [
 // ------------------------------------------------------------
 //   STATS (computed below but written into HUD)
 // ------------------------------------------------------------
-function computeStats() {
-  const totalSqFt = ROOMS.reduce((s, r) => s + r.w * r.d, 0);
-  let wallCount = 0;
-  // Outer walls: 2 long + 2 short = 4
-  wallCount += 4;
-  // Interior walls — count shared edges between rooms
-  const interiorEdges = new Set();
-  for (let i = 0; i < ROOMS.length; i++) {
-    for (let j = i + 1; j < ROOMS.length; j++) {
-      const a = ROOMS[i], b = ROOMS[j];
-      const ax2 = a.x + a.w, az2 = a.z + a.d;
-      const bx2 = b.x + b.w, bz2 = b.z + b.d;
-      // Vertical shared edge (same x range, adjacent z)
-      if (Math.abs(az2 - b.z) < 0.01 || Math.abs(a.z - bz2) < 0.01) {
-        const overlapX = Math.min(ax2, bx2) - Math.max(a.x, b.x);
-        if (overlapX > 0) interiorEdges.add(`v-${a.id}-${b.id}`);
-      }
-      // Horizontal shared edge
-      if (Math.abs(ax2 - b.x) < 0.01 || Math.abs(a.x - bx2) < 0.01) {
-        const overlapZ = Math.min(az2, bz2) - Math.max(a.z, b.z);
-        if (overlapZ > 0) interiorEdges.add(`h-${a.id}-${b.id}`);
-      }
-    }
-  }
-  wallCount += interiorEdges.size;
-  return { totalSqFt, wallCount };
-}
-const STATS = computeStats();
-document.getElementById('stat-rooms').textContent = ROOMS.length;
-document.getElementById('stat-sqft').textContent = STATS.totalSqFt.toLocaleString();
-document.getElementById('stat-walls').textContent = STATS.wallCount;
+// HUD initial values — pulled from state.stats (the canonical, derived counter).
+// state.stats is recomputed by loadPlan() and stays in sync across plan changes.
+document.getElementById('stat-rooms').textContent = state.stats.roomCount;
+document.getElementById('stat-sqft').textContent  = state.stats.floorAreaSqFt.toLocaleString();
+document.getElementById('stat-walls').textContent = state.stats.interiorWalls + state.stats.exteriorWalls;
+// Legacy alias — `STATS` is referenced deeper in this file as `STATS.totalSqFt`.
+const STATS = { totalSqFt: state.stats.floorAreaSqFt, wallCount: state.stats.interiorWalls + state.stats.exteriorWalls };
 
 // ------------------------------------------------------------
 //   THREE.JS SETUP
@@ -1723,12 +1702,22 @@ async function handleUploadedFile(file) {
     if (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')) {
       const text = await file.text();
       const plan = JSON.parse(text);
-      rebuildSceneFromPlan(plan);
-      dropText.textContent = `✓ ${file.name} rebuilt the scene`;
+      // Real pipeline: validate, derive walls/stats, install into state, rebuild meshes.
+      // Geometry rebuild is the only step still stubbed — see `rebuildSceneFromPlan`.
+      try {
+        loadPlan(plan);
+        rebuildSceneFromPlan(plan);
+      } catch (e) {
+        dropText.textContent = `Failed: ${e.message}`;
+        setTimeout(() => overlay.classList.add('hidden'), 1800);
+        return;
+      }
+      dropText.textContent = `✓ ${file.name} loaded (${state.stats.roomCount} rooms)`;
       setTimeout(() => overlay.classList.add('hidden'), 600);
       document.getElementById('demo-title').textContent =
-        `${file.name} · Plan #${plan.planNumber || '?'}`;
-      document.getElementById('btn-clear-plan').classList.remove('hidden');
+        `${plan.name || file.name} · Plan #${plan.planNumber || 1}`;
+      const clearBtn = document.getElementById('btn-clear-plan');
+      if (clearBtn) clearBtn.classList.remove('hidden');
       return;
     }
 
@@ -1752,37 +1741,40 @@ async function handleUploadedFile(file) {
   }
 }
 
-// Rebuild the entire scene from a JSON plan.
+// Rebuild the side-panel UI to match the loaded plan.
 //
-// Expected shape:
-// {
-//   "name": "Optional title",
-//   "planNumber": 1,
-//   "rooms": [{"name":"Bedroom 1","x":0,"y":0,"w":14,"d":12,"height":9,"color":"#7c5cff"}],
-//   "doors":  [{"x":0,"z":6,"w":3,"host":"Bedroom 1"}],
-//   "windows":[{"x":7,"z":0,"w":4,"host":"Bedroom 1"}]
-// }
-// Coordinates are in feet; "host" maps an opening to its room for measurement
-// labels. The sample plan included in the repo gives a working example.
+// At v0.9 this updates:
+//   - The viewer's header stats (rooms, sq ft, doors, windows)
+//   - The ROOMS list in the side panel
+//
+// The 3D GEOMETRY rebuild (regenerate walls/doors/windows meshes from the
+// new plan) is the next step. For now the scene keeps showing the demo
+// home; the panels reflect the new plan. Foundation laid; geometry swap
+// is the next foundation item.
 function rebuildSceneFromPlan(plan) {
-  // For v0.9 this is a stub. v1 will rebuild the scene's GEOMETRY from
-  // the rooms array (current sample data lives in app.js ROOMS constant).
-  // For now we just animate the demo title and show a notice.
-  console.log('[plan] rebuild requested with', plan);
-  if (plan && plan.name) {
-    document.getElementById('demo-title').textContent = plan.name + ' · Plan #' + (plan.planNumber || 1);
+  console.log('[plan] rebuild requested', describe());
+  if (!state.house) return;
+
+  // The stats card ("6 rooms · 1236 sq ft · 5 doors · 10 windows") under the canvas
+  const stats = document.querySelector('.viewer-stats');
+  if (stats) {
+    stats.innerHTML = `
+      <strong>${state.stats.roomCount}</strong> rooms ·
+      <strong>${state.stats.floorAreaSqFt}</strong> sq ft ·
+      <strong>${state.house.plan.doors.length}</strong> doors ·
+      <strong>${state.house.plan.windows.length}</strong> windows
+    `;
   }
-  if (plan && plan.rooms) {
-    const sqft = plan.rooms.reduce((s, r) => s + (r.w * r.d), 0);
-    const stats = document.querySelector('.viewer-stats');
-    if (stats) {
-      stats.innerHTML = `<strong>${plan.rooms.length}</strong> rooms · <strong>${sqft}</strong> sq ft · <strong>${plan.doors?.length || 0}</strong> doors · <strong>${plan.windows?.length || 0}</strong> windows`;
-    }
-  }
-  // Push a notice into the rooms panel
+  // The big number in the top-left ("6 rooms / 24 walls")
+  const statRooms = document.getElementById('stat-rooms');
+  if (statRooms) statRooms.textContent = state.stats.roomCount;
+  const statWalls = document.getElementById('stat-walls');
+  if (statWalls) statWalls.textContent = state.stats.interiorWalls + state.stats.exteriorWalls;
+
+  // Side-panel ROOMS list
   const roomsList = document.getElementById('rooms-list');
   if (roomsList) {
-    roomsList.innerHTML = (plan.rooms || []).map(r => `
+    roomsList.innerHTML = state.house.plan.rooms.map(r => `
       <li class="room-row">
         <div class="room-name">${r.name}</div>
         <div class="room-meta">${r.w}' × ${r.d}' · ${r.w * r.d} sq ft</div>
@@ -1913,9 +1905,34 @@ function animate() {
 }
 animate();
 
-// Debug hook — toggle post-processing on/off from console: GENESIS.togglePost()
+// Public API surface — drive Genesis from console, devtools, future UI.
+// Stable names; internals stay private.
 window.GENESIS = {
-  scene, camera, orbit, ROOMS, DOORS, WINDOWS, STATS,
+  // ----- state bridge -----
+  state,                         // the state module's state object
+  loadPlan,                      // (rawPlan) → installs + returns state.house
+  describe,                      // () → human-readable summary of current house
+  getRoom, getWall, getOpening,  // id lookups
+
+  // ----- scene handles (legacy; exposed for devtools / 3rd-party scripts) -----
+  scene, camera, orbit,
+  ROOMS, DOORS, WINDOWS, STATS,  // current plan arrays (live references to state)
+
+  // ----- toggles -----
   composer, ssaoPass, outlinePass,
   togglePost() { this.composer.enabled = !this.composer.enabled; },
+
+  // ----- scene rebuild after a loadPlan(...) -----
+  // v0.10+: this becomes a real mesh-rebuild step. For now it refreshes the
+  // side-panel UI. The 3D geometry still shows the demo home until the
+  // rebuild-meshes work lands.
+  rebuildSceneFromPlan(plan) {
+    if (typeof rebuildSceneFromPlan === 'function') rebuildSceneFromPlan(plan);
+  },
+};
+
+// Expose plan fixtures for devtools ("GENESIS.demoPlan()" → installs the demo)
+window.GENESIS.demoPlan = async () => {
+  const mod = await import('./state.js');
+  return mod.loadPlan(mod.DEMO_PLAN);
 };

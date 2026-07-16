@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Genesis — Foundation tests</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2300d4ff'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-size='18' font-weight='700' text-anchor='middle' fill='%23001018'%3EG%3C/text%3E%3C/svg%3E">
+  <script type="module" src="./tests.js"></script>
+<style>
+  :root {
+    --bg: #06090f;
+    --panel: #0b1320;
+    --text: #e6edf3;
+    --muted: #9aa3b2;
+    --accent: #00d4ff;
+    --green: #5cffb4;
+    --red: #ff5e5e;
+    --border: rgba(255,255,255,0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14.5px/1.55 system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+    padding: 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    color: var(--accent);
+    margin: 0 0 4px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 28px; }
+  .summary {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .summary > div { text-align: center; }
+  .summary .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .summary .value { font-size: 22px; font-weight: 700; }
+  .summary .value.good { color: var(--green); }
+  .summary .value.bad  { color: var(--red); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td { padding: 9px 14px; text-align: left; font-size: 13px; }
+  th { background: rgba(255,255,255,0.03); color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td.pass { color: var(--green); font-weight: 600; }
+  td.fail { color: var(--red); font-weight: 600; }
+  tr.failed td { background: rgba(255, 94, 94, 0.06); }
+  code {
+    background: rgba(0,0,0,0.3);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  .case-detail {
+    margin-top: 32px;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <h1>Genesis · foundation tests</h1>
+  <p class="sub">
+    Headless tests for the state pipeline. No Three.js required. Runs in any
+    modern browser or via <code>python -m http.server</code>.
+  </p>
+  <div class="summary">
+    <div><span class="label">Tests</span><br><span id="stat-total" class="value">0</span></div>
+    <div><span class="label">Passed</span><br><span id="stat-pass" class="value good">0</span></div>
+    <div><span class="label">Failed</span><br><span id="stat-fail" class="value bad">0</span></div>
+    <div><span class="label">Duration</span><br><span id="stat-dur" class="value">0ms</span></div>
+  </div>
+  <table id="results">
+    <thead>
+      <tr>
+        <th>Test</th>
+        <th>Status</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody id="results-body"></tbody>
+  </table>
+  <p class="case-detail" id="detail"></p>
+  <script>
+    // Render the result table once tests.js finishes
+    document.body.dataset.testRunner = 'loaded';
+  </script>
+</body>
+</html>

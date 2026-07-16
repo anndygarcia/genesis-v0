@@ -2,9 +2,19 @@
 
 Self-contained 3D property reconstruction demo. Single HTML file, Three.js on CDN, no build step.
 
+## Architecture
+
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the data flow diagram, the plan
+schema, the `window.GENESIS` API, and the rules for extending the codebase.
+
+## Tests
+
+Open `tests.html` in a browser. Headless assertions on the data layer — 13
+tests, no Three.js required.
+
 ## What's here
 
-- **Live 3D viewer** — 6-room home, gable roof, 24 walls, doors + windows, furniture proxies
+- **Live 3D viewer** — 6-room home, gable roof, walls + openings, furniture proxies
 - **Orbit camera** (drag, scroll, right-drag to pan) — default
 - **Walk camera** — click "Walk inside", capture mouse, use **WASD** to move, **Esc** to exit
 - **Room labels** floating above each room in 3D (CSS2DRenderer)
