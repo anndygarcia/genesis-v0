@@ -178,9 +178,10 @@ const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
 const ssaoPass = new SSAOPass(scene, camera, canvas.parentElement.clientWidth, canvas.parentElement.clientHeight);
-ssaoPass.kernelRadius = 8;
+ssaoPass.kernelRadius = 16;       // wider sampling
 ssaoPass.minDistance = 0.001;
-ssaoPass.maxDistance = 0.05;
+ssaoPass.maxDistance = 0.1;       // wider falloff so corners darken visibly
+ssaoPass.output = SSAOPass.OUTPUT.Default;
 composer.addPass(ssaoPass);
 
 const outlinePass = new OutlinePass(
@@ -344,15 +345,46 @@ const carpetTex = makeCarpetTexture();
 // Per-room floor material — keep the colors VIBRANT (the room-color tiles
 // are the strongest visual identity of this demo), but use PBR so reflections
 // from the HDR envmap show through, and SSAO darkens the corners.
+// Per-room floor material — TEXTURE + COLOR
+// Patterns: living = wood, kitchen/bath = tile, bedrooms = carpet
+// Each texture is grayscale so that multiplying by `room.color`
+// preserves the room's distinctive accent color.
 function floorForRoom(room) {
-  // Highlighting with emissive so colors stay vivid even under AO darkening
+  const map = woodTex.clone();
+  let roughness = 0.7, metalness = 0.0, envI = 0.4, repeat;
+
+  if (room.id === 'master' || room.id === 'bed2' || room.id === 'bed3') {
+    map.image = carpetTex.image;       // share source canvas
+    roughness = 0.96;
+    envI = 0.25;
+    repeat = [4, 4];
+  } else if (room.id === 'kitchen') {
+    map.image = tileTex.image;
+    roughness = 0.55;
+    metalness = 0.05;
+    envI = 0.7;
+    repeat = [3, 3];
+  } else if (room.id === 'bath') {
+    map.image = tileTex.image;
+    roughness = 0.5;
+    metalness = 0.05;
+    envI = 0.6;
+    repeat = [2, 2];
+  } else {
+    repeat = [Math.max(1, Math.round(room.w / 6)), Math.max(1, Math.round(room.d / 6))];
+  }
+
+  map.needsUpdate = true;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(repeat[0], repeat[1]);
+
   return new THREE.MeshStandardMaterial({
+    map,
     color: room.color,
-    roughness: 0.7,
-    metalness: 0.0,
-    envMapIntensity: 0.35,
-    emissive: room.color,
-    emissiveIntensity: 0.18,
+    roughness,
+    metalness,
+    envMapIntensity: envI,
   });
 }
 
@@ -415,6 +447,218 @@ function makeTrimTexture(size = 256) {
   return t;
 }
 const trimTex = makeTrimTexture();
+
+
+// ------------------------------------------------------------
+//   PROCEDURAL ASSET PLACEMENT — Section 10
+//   Foundation stem wall, front porch, back patio, driveway,
+//   sidewalk. Each placement uses configurable rules.
+// ------------------------------------------------------------
+const ASSET_PLACEMENTS = [];
+
+// --- Foundation: a darker concrete stem wall visible around the slab edge
+const foundationMat = new THREE.MeshStandardMaterial({
+  color: 0x6e6a64,
+  roughness: 0.95,
+  metalness: 0.05,
+});
+const FOUND_DEPTH = 2; // 2 ft below grade
+const foundation = new THREE.Mesh(
+  new THREE.BoxGeometry(FOOTPRINT_W, FOUND_DEPTH, FOOTPRINT_D),
+  foundationMat
+);
+foundation.position.set(FOOTPRINT_W/2, -FLOOR_T - FOUND_DEPTH/2, FOOTPRINT_D/2);
+foundation.receiveShadow = true;
+foundation.castShadow = true;
+foundation.userData = { kind: 'foundation' };
+INTERACTABLE.push(foundation);
+ASSET_PLACEMENTS.push({ kind: 'foundation', area: (FOOTPRINT_W + 2) * (FOOTPRINT_D + 2) });
+scene.add(foundation);
+
+// --- Front Porch (south side, where the Front Entry door is)
+{
+  const porchMat = new THREE.MeshStandardMaterial({
+    map: concreteTex.clone(),
+    color: 0xddc8a4,
+    roughness: 0.75,
+    metalness: 0.0,
+  });
+  porchMat.map.repeat.set(2, 1);
+  const porch = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 0.4, 6),
+    porchMat
+  );
+  porch.position.set(6, 0.2, -3); // south of the slab, half-embedded
+  porch.castShadow = true;
+  porch.receiveShadow = true;
+  scene.add(porch);
+
+  // Porch rails (4 wooden posts + top rail)
+  const railMat = new THREE.MeshStandardMaterial({
+    map: trimTex,
+    color: 0x5b3e23,
+    roughness: 0.7,
+    metalness: 0.0,
+  });
+  const postPositions = [[1, -3], [13, -3]];
+  postPositions.forEach(([x, z]) => {
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 3, 0.4),
+      railMat
+    );
+    post.position.set(x, 1.7, z);
+    post.castShadow = true;
+    scene.add(post);
+  });
+  // Top rail
+  const rail = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 0.3, 0.3),
+    railMat
+  );
+  rail.position.set(7, 3.4, -3);
+  rail.castShadow = true;
+  scene.add(rail);
+}
+
+// --- Back Patio (north side, where the Back Patio door is)
+{
+  const patioMat = new THREE.MeshStandardMaterial({
+    map: concreteTex.clone(),
+    color: 0xc8b896,
+    roughness: 0.8,
+  });
+  patioMat.map.repeat.set(3, 2);
+  const patio = new THREE.Mesh(
+    new THREE.BoxGeometry(20, 0.4, 8),
+    patioMat
+  );
+  patio.position.set(28, 0.2, FOOTPRINT_D + 4); // north of slab
+  patio.castShadow = true;
+  patio.receiveShadow = true;
+  scene.add(patio);
+}
+
+// --- Driveway (concrete, runs from front of house to north or south curb)
+function makeDrivewayTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#9a9388'; ctx.fillRect(0, 0, 256, 256);
+  // expansion joints (4x4 squares)
+  for (let y = 0; y < 256; y += 64) {
+    ctx.strokeStyle = 'rgba(40,38,32,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y); ctx.lineTo(256, y);
+    ctx.stroke();
+  }
+  for (let x = 0; x < 256; x += 64) {
+    ctx.strokeStyle = 'rgba(40,38,32,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x, 256);
+    ctx.stroke();
+  }
+  // cracks
+  for (let i = 0; i < 25; i++) {
+    ctx.strokeStyle = `rgba(30,28,22,${0.3 + Math.random()*0.4})`;
+    ctx.lineWidth = 0.5 + Math.random();
+    ctx.beginPath();
+    ctx.moveTo(Math.random()*256, Math.random()*256);
+    ctx.lineTo(Math.random()*256, Math.random()*256);
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const drivewayTex = makeDrivewayTexture();
+
+// --- Sidewalk (3' wide, brushed concrete)
+function makeSidewalkTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#bbb5a8'; ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 80; i++) {
+    ctx.strokeStyle = `rgba(${110 + Math.random()*30},${105+Math.random()*25},${95+Math.random()*20},0.3)`;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(0, Math.random()*256);
+    ctx.bezierCurveTo(64, Math.random()*256, 192, Math.random()*256, 256, Math.random()*256);
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const sidewalkTex = makeSidewalkTexture();
+
+// Place driveway (south side, 12ft wide, runs from front to street)
+{
+  const drivewayMat = new THREE.MeshStandardMaterial({
+    map: drivewayTex,
+    color: 0xffffff,
+    roughness: 0.85,
+    metalness: 0.0,
+  });
+  drivewayTex.repeat.set(2, 5);
+  const driveway = new THREE.Mesh(
+    new THREE.BoxGeometry(12, 0.15, 30),
+    drivewayMat
+  );
+  driveway.position.set(36, 0.075, -12); // drives from east side of house south
+  driveway.rotation.y = -Math.PI * 0.05; // slight angle for natural look
+  driveway.receiveShadow = true;
+  scene.add(driveway);
+
+  // Curb along the driveway edge
+  const curb = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.5, 30),
+    new THREE.MeshStandardMaterial({ color: 0xb3ab9f, roughness: 0.7 })
+  );
+  curb.position.set(42, 0.25, -12);
+  curb.castShadow = true;
+  scene.add(curb);
+}
+
+// Place sidewalk along south side of house (3ft wide)
+{
+  const sidewalkMat = new THREE.MeshStandardMaterial({
+    map: sidewalkTex,
+    color: 0xffffff,
+    roughness: 0.75,
+  });
+  sidewalkTex.repeat.set(8, 1);
+  const sidewalk = new THREE.Mesh(
+    new THREE.BoxGeometry(FOOTPRINT_W, 0.15, 3.5),
+    sidewalkMat
+  );
+  sidewalk.position.set(FOOTPRINT_W/2, 0.075, -6);
+  sidewalk.receiveShadow = true;
+  scene.add(sidewalk);
+
+  // Driveway crossing (where sidewalk meets driveway)
+  const apron = new THREE.Mesh(
+    new THREE.BoxGeometry(12, 0.15, 3.5),
+    sidewalkMat
+  );
+  apron.position.set(36, 0.075, -6);
+  apron.receiveShadow = true;
+  scene.add(apron);
+}
+
+// Track placements for the estimator asset counts
+ASSET_PLACEMENTS.push(
+  { kind: 'porch',     area: 14 * 6 },
+  { kind: 'patio',     area: 20 * 8 },
+  { kind: 'driveway',  area: 12 * 30 },
+  { kind: 'sidewalk',  area: FOOTPRINT_W * 3.5 },
+  { kind: 'curb',      area: 30 },
+);
+
+// Procedural wood-floor texture
+
 const baseboardMat = new THREE.MeshStandardMaterial({
   map: trimTex,
   color: 0xffffff,
@@ -530,8 +774,15 @@ addWall(FOOTPRINT_W - WALL_T, 0,       WALL_T, FOOTPRINT_D, true); // east
 // Track them
 addedWalls.push(...WALL_MESHES.slice());
 
-// Interior walls — re-derive from ROOMS adjacency map (re-using computeStats logic)
+// Interior walls — derived from ROOMS adjacency. Each interior wall
+// remembers the two rooms it separates (so drywall counts and click
+// measurements can be attributed to a room).
 const interiorWalls = [];
+function pushInterior(meta) {
+  interiorWalls.push(meta);
+  const wall = addWall(meta.ax, meta.az, meta.aw, meta.ad, false);
+  wall.userData.rooms = [meta.roomA, meta.roomB];
+}
 for (let i = 0; i < ROOMS.length; i++) {
   for (let j = i + 1; j < ROOMS.length; j++) {
     const a = ROOMS[i], b = ROOMS[j];
@@ -539,38 +790,35 @@ for (let i = 0; i < ROOMS.length; i++) {
     const bx2 = b.x + b.w, bz2 = b.z + b.d;
     let added = false;
 
-    // Vertical shared edge (a.z...az2 abuts b.z...bz2)
     if (Math.abs(az2 - b.z) < 0.01) {
       const overlapX = Math.min(ax2, bx2) - Math.max(a.x, b.x);
       if (overlapX > 0) {
-        interiorWalls.push({ ax: Math.max(a.x, b.x), az: az2 - WALL_T/2, aw: overlapX, ad: WALL_T });
+        pushInterior({ ax: Math.max(a.x, b.x), az: az2 - WALL_T/2, aw: overlapX, ad: WALL_T, roomA: a.id, roomB: b.id });
         added = true;
       }
     }
     if (Math.abs(a.z - bz2) < 0.01 && !added) {
       const overlapX = Math.min(ax2, bx2) - Math.max(a.x, b.x);
       if (overlapX > 0) {
-        interiorWalls.push({ ax: Math.max(a.x, b.x), az: a.z - WALL_T/2, aw: overlapX, ad: WALL_T });
+        pushInterior({ ax: Math.max(a.x, b.x), az: a.z - WALL_T/2, aw: overlapX, ad: WALL_T, roomA: a.id, roomB: b.id });
         added = true;
       }
     }
-    // Horizontal shared edge
     if (Math.abs(ax2 - b.x) < 0.01 && !added) {
       const overlapZ = Math.min(az2, bz2) - Math.max(a.z, b.z);
       if (overlapZ > 0) {
-        interiorWalls.push({ ax: ax2 - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ });
+        pushInterior({ ax: ax2 - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ, roomA: a.id, roomB: b.id });
         added = true;
       }
     }
     if (Math.abs(a.x - bx2) < 0.01 && !added) {
       const overlapZ = Math.min(az2, bz2) - Math.max(a.z, b.z);
       if (overlapZ > 0) {
-        interiorWalls.push({ ax: a.x - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ });
+        pushInterior({ ax: a.x - WALL_T/2, az: Math.max(a.z, b.z), aw: WALL_T, ad: overlapZ, roomA: a.id, roomB: b.id });
       }
     }
   }
 }
-interiorWalls.forEach(w => addWall(w.ax, w.az, w.aw, w.ad, false));
 
 // ------------------------------------------------------------
 //   DOORS
@@ -1047,14 +1295,24 @@ function describeTarget(mesh) {
   if (!u || !u.kind) return null;
 
   if (u.kind === 'wall') {
+    const rows = [
+      ['Length',  `${u.length.toFixed(1)} ft`],
+      ['Height',  `${u.height.toFixed(1)} ft`],
+      ['Both sides area', `${u.area.toFixed(0)} sq ft`],
+    ];
+    if (u.isOuter) {
+      rows.push(['Siding', `~${u.area.toFixed(0)} sq ft (HardiePlank installed)`]);
+      rows.push(['Sheathing', `~${(u.length * u.height).toFixed(0)} sq ft OSB (4×8 sheets: ${Math.ceil((u.length * u.height) / 32)})`]);
+    } else {
+      rows.push(['Drywall', `~${(u.area * 0.95).toFixed(0)} sq ft (2 sides)`]);
+      if (u.rooms) {
+        const roomNames = u.rooms.map(id => ROOMS.find(r => r.id === id)?.name).filter(Boolean);
+        rows.push(['Divides', roomNames.join(' · ')]);
+      }
+    }
     return {
       title: u.isOuter ? 'Exterior Wall' : 'Interior Wall',
-      rows: [
-        ['Length',  `${u.length.toFixed(1)} ft`],
-        ['Height',  `${u.height.toFixed(1)} ft`],
-        ['Both sides area', `${u.area.toFixed(0)} sq ft`],
-        ['Drywall', `~${(u.area * 0.95).toFixed(0)} sq ft (${u.isOuter ? '2 sides incl. exterior wrap' : '2 sides'})`],
-      ],
+      rows,
     };
   }
   if (u.kind === 'floor') {
@@ -1172,17 +1430,27 @@ function computeEstimate() {
   const roofArea = roof.userData.area;
 
   // Industry rules of thumb:
-  //   Drywall: ~$1.50/sqft installed (avg 1/2" board). 4x8 sheet = 32 sqft, $15-25/sheet
-  //   Paint: ~350 sqft/gallon per coat (2 coats typical → 175 sqft/gallon finished)
-  //   Framing lumber: 2x4 @ 16" OC, plate + studs ≈ 4.5 board feet per sqft wall area
-  //   Roofing: 3 bundles per square (100 sqft), $35-50/bundle
-  //   Concrete slab: avg $5/sqft installed in Houston
+  //   Drywall: 4x8 sheet = 32 sqft, $15-25/sheet
+  //   Paint: ~175 sqft finished wall area per gallon (2 coats)
+  //   Framing: 2x4 @ 16" OC, plate + studs ≈ 4.5 BF per sqft interior wall
+  //   Shingles: 3 bundles per square (100 sqft), $35-50/bundle
+  //   Concrete slab: avg $5/sqft installed in Houston (Tx)
   const drywallSqFt = interiorWallArea;
   const drywallSheets = Math.ceil(drywallSqFt / 32);
   const paintGallons = Math.ceil(drywallSqFt / 175);
   const lumberBF = Math.round(interiorWallArea * 4.5);
   const roofSquares = roofArea / 100;
   const shingleBundles = Math.ceil(roofSquares * 3);
+
+  // New placements (Section 10)
+  const foundationArea = ASSET_PLACEMENTS.find(a => a.kind === 'foundation')?.area || 0;
+  const porchArea = ASSET_PLACEMENTS.find(a => a.kind === 'porch')?.area || 0;
+  const patioArea = ASSET_PLACEMENTS.find(a => a.kind === 'patio')?.area || 0;
+  const drivewayArea = ASSET_PLACEMENTS.find(a => a.kind === 'driveway')?.area || 0;
+  const sidewalkArea = ASSET_PLACEMENTS.find(a => a.kind === 'sidewalk')?.area || 0;
+
+  // Siding / trim for exterior walls (HardiePlank typical: $5/sqft installed)
+  const sidingSqFt = exteriorWallArea;
 
   // Cost ranges (Texas/Houston 2026 mid-range)
   const cost = {
@@ -1191,8 +1459,15 @@ function computeEstimate() {
     lumber:   Math.round(lumberBF * 1.10),
     shingles: Math.round(shingleBundles * 42),
     slab:     Math.round(totalFloorSqFt * 5),
+    // Section 10 costs
+    siding:   Math.round(sidingSqFt * 5),
+    driveway: Math.round(drivewayArea * 6),
+    sidewalk: Math.round(sidewalkArea * 7),
+    patio:    Math.round(patioArea * 4),
+    porch:    Math.round(porchArea * 25),     // porch includes rail/footers
+    foundation: Math.round(foundationArea * 8),
   };
-  cost.total = cost.drywall + cost.paint + cost.lumber + cost.shingles + cost.slab;
+  cost.total = Object.values(cost).reduce((s, v) => s + v, 0);
 
   return {
     totalFloorSqFt,
@@ -1200,6 +1475,12 @@ function computeEstimate() {
     interiorWallArea,
     exteriorWallArea,
     roofArea,
+    sidingSqFt,
+    foundationArea,
+    porchArea,
+    patioArea,
+    drivewayArea,
+    sidewalkArea,
     drywallSqFt,
     drywallSheets,
     paintGallons,
@@ -1218,7 +1499,14 @@ function fillEstimate() {
   $('est-floor').textContent     = `${e.totalFloorSqFt.toLocaleString()} sq ft`;
   $('est-wall').textContent      = `${e.totalWallArea.toFixed(0)} sq ft`;
   $('est-wall-int').textContent  = `${e.interiorWallArea.toFixed(0)} sq ft`;
+  $('est-wall-ext').textContent  = `${e.exteriorWallArea.toFixed(0)} sq ft`;
   $('est-roof').textContent      = `${e.roofArea.toFixed(0)} sq ft`;
+  $('est-foundation').textContent = `${e.foundationArea.toFixed(0)} sq ft`;
+  $('est-porch').textContent     = `${e.porchArea.toFixed(0)} sq ft`;
+  $('est-patio').textContent     = `${e.patioArea.toFixed(0)} sq ft`;
+  $('est-driveway').textContent  = `${e.drivewayArea.toFixed(0)} sq ft`;
+  $('est-sidewalk').textContent  = `${e.sidewalkArea.toFixed(0)} sq ft`;
+  $('est-siding').textContent    = `${e.sidingSqFt.toFixed(0)} sq ft`;
   $('est-drywall-sq').textContent = `${e.drywallSqFt.toFixed(0)} sq ft`;
   $('est-drywall-sh').textContent = `${e.drywallSheets} sheets`;
   $('est-paint').textContent     = `${e.paintGallons} gallons`;
@@ -1230,6 +1518,12 @@ function fillEstimate() {
   $('cost-lumber').textContent   = `$${e.cost.lumber.toLocaleString()}`;
   $('cost-shingles').textContent = `$${e.cost.shingles.toLocaleString()}`;
   $('cost-slab').textContent     = `$${e.cost.slab.toLocaleString()}`;
+  $('cost-siding').textContent   = `$${e.cost.siding.toLocaleString()}`;
+  $('cost-driveway').textContent = `$${e.cost.driveway.toLocaleString()}`;
+  $('cost-sidewalk').textContent = `$${e.cost.sidewalk.toLocaleString()}`;
+  $('cost-patio').textContent    = `$${e.cost.patio.toLocaleString()}`;
+  $('cost-porch').textContent    = `$${e.cost.porch.toLocaleString()}`;
+  $('cost-foundation').textContent = `$${e.cost.foundation.toLocaleString()}`;
   $('cost-total').textContent    = `$${e.cost.total.toLocaleString()}`;
 }
 fillEstimate();
@@ -1237,10 +1531,25 @@ fillEstimate();
 // ------------------------------------------------------------
 //   GLB EXPORT — download the whole scene as a .glb
 // ------------------------------------------------------------
+// GLB export — strips CSS2D labels (they're HTML, not 3D),
+// strips the floor tile above y=0.1 (avoid exporting labels stack).
+// Kept simple: only export meshes.
 document.getElementById('btn-glb').addEventListener('click', () => {
   const exporter = new GLTFExporter();
+  const exportScene = new THREE.Scene();
+  // Walk scene and clone only Mesh / Group / InstancedMesh children,
+  // skipping CSS2DRenderer objects (which are not part of THREE).
+  const skip = new Set();
+  scene.traverse(o => {
+    if (o.isCSS2DObject || (o.userData && o.userData.exportable === false)) skip.add(o);
+  });
+  scene.children.forEach(child => {
+    if (child.isCSS2DObject) return;
+    exportScene.add(child.clone(true));
+  });
+
   exporter.parse(
-    scene,
+    exportScene,
     (result) => {
       const blob = new Blob([result], { type: 'model/gltf-binary' });
       const url = URL.createObjectURL(blob);
@@ -1257,18 +1566,93 @@ document.getElementById('btn-glb').addEventListener('click', () => {
   );
 });
 
+// Estimate CSV download — gives the user a quotable summary
+document.getElementById('btn-est-csv').addEventListener('click', () => {
+  const e = ESTIMATE;
+  const rows = [
+    ['Genesis v0.5 — Quantity Takeoff'],
+    ['Generated', new Date().toISOString()],
+    [],
+    ['Material', 'Quantity', 'Unit', 'Cost (USD)'],
+    ['Total floor area',       e.totalFloorSqFt, 'sq ft', ''],
+    ['Total wall area (both sides)', e.totalWallArea.toFixed(0), 'sq ft', ''],
+    ['Interior wall area',     e.interiorWallArea.toFixed(0), 'sq ft', ''],
+    ['Roof area',              e.roofArea.toFixed(0), 'sq ft', ''],
+    [],
+    ['Drywall',                e.drywallSheets, 'sheets (4×8)', `$${e.cost.drywall.toLocaleString()}`],
+    ['Paint (2 coats)',        e.paintGallons, 'gallons',       `$${e.cost.paint.toLocaleString()}`],
+    ['Framing lumber',         e.lumberBF, 'board feet',        `$${e.cost.lumber.toLocaleString()}`],
+    ['Roof squares',           e.roofSquares.toFixed(1), 'squares', ''],
+    ['Shingle bundles',        e.shingleBundles, 'bundles', `$${e.cost.shingles.toLocaleString()}`],
+    ['Concrete slab',          e.totalFloorSqFt, 'sq ft',   `$${e.cost.slab.toLocaleString()}`],
+    [],
+    ['TOTAL', '', '', `$${e.cost.total.toLocaleString()}`],
+  ];
+  const csv = rows.map(r => r.map(v => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'genesis-takeoff.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
 // ------------------------------------------------------------
 //   RENDER LOOP
 // ------------------------------------------------------------
 const clock = new THREE.Clock();
 
 // Simple collision: clamp walk pos to stay inside the footprint + inside walls
+// Walk-mode collision — check against each wall + outer footprint
+const PLAYER_RADIUS = 0.5;
+const _tmpV = new THREE.Vector3();
+
 function collide(pos) {
-  // Hard walls: outside the footprint
-  pos.x = Math.max(0.5, Math.min(FOOTPRINT_W - 0.5, pos.x));
-  pos.z = Math.max(0.5, Math.min(FOOTPRINT_D - 0.5, pos.z));
-  pos.y = 5.5;
-  // (Could intersect interior walls here — for v0 we let the user walk freely.)
+  pos.y = 5.5; // eye height
+
+  // Outer footprint clamp (allow a tiny buffer for the player radius)
+  const limit = PLAYER_RADIUS + 0.05;
+  pos.x = Math.max(limit, Math.min(FOOTPRINT_W - limit, pos.x));
+  pos.z = Math.max(limit, Math.min(FOOTPRINT_D - limit, pos.z));
+
+  // Resolve against interior walls by pushing the player out along the
+  // nearest wall normal. Each wall is axis-aligned, so we can compute
+  // the closest point on the wall rectangle in xz and check distance.
+  // Iterate a few times to handle corners.
+  for (let iter = 0; iter < 3; iter++) {
+    let pushed = false;
+    for (const wall of WALL_MESHES) {
+      const ax = wall.userData.ax, az = wall.userData.az;
+      const aw = wall.userData.aw, ad = wall.userData.ad;
+      // Pad the wall by PLAYER_RADIUS so we can't clip into it
+      const minX = ax - PLAYER_RADIUS;
+      const maxX = ax + aw + PLAYER_RADIUS;
+      const minZ = az - PLAYER_RADIUS;
+      const maxZ = az + ad + PLAYER_RADIUS;
+      const cx = Math.max(minX, Math.min(maxX, pos.x));
+      const cz = Math.max(minZ, Math.min(maxZ, pos.z));
+      const dx = pos.x - cx;
+      const dz = pos.z - cz;
+      const distSq = dx*dx + dz*dz;
+      if (distSq < PLAYER_RADIUS*PLAYER_RADIUS && distSq > 1e-6) {
+        const dist = Math.sqrt(distSq);
+        const nx = dx / dist, nz = dz / dist;
+        const pushBy = PLAYER_RADIUS - dist + 0.01;
+        pos.x += nx * pushBy;
+        pos.z += nz * pushBy;
+        pushed = true;
+      }
+    }
+    if (!pushed) break;
+  }
+
+  // Foundation: a 2 ft-deep skirt around the slab — clamp pos to the
+  // foundation top (y = 0) and onto the slab rectangle only.
+  // For now walk-mode keeps the player inside the footprint only;
+  // they can't walk on the porch/patio/etc. (would require y-aware collide).
 }
 
 function animate() {
