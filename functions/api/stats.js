@@ -1,6 +1,9 @@
 // GET /api/stats — admin view, returns aggregated stats.
 // Auth: HTTP Basic, where the password matches env.ADMIN_KEY.
 // Falls back to a graceful empty response if KV is not bound.
+//
+// ADMIN_KEY MUST be set as a Cloudflare Pages env var.
+// Pages dashboard → genesis-v0 → Settings → Environment variables
 
 export async function onRequest({ request, env }) {
   // HTTP Basic auth
