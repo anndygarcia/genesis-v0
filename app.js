@@ -2381,3 +2381,29 @@ window.GENESIS.demoPlan = async () => {
   // Reuse the wrapped loadPlan so the demo swap also rebuilds + refreshes UI.
   return window.GENESIS.loadPlan(mod.DEMO_PLAN);
 };
+
+// Auto-load a sample plan when the URL has ?load=<planId>.
+// Currently supported plan IDs:
+//   • garage      — sample-plan.json (demo)
+//   • garcia      — Garcia/Caballero Residence (real architect's plans)
+// Runs after a short delay so window.GENESIS.loadPlan is fully initialized.
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get('load');
+  if (!wanted) return;
+  const map = {
+    garage: '/assets/sample-plan.json',
+    garcia: '/assets/garcia-residence.json',
+  };
+  const url = map[wanted];
+  if (!url) return;
+  await new Promise(r => setTimeout(r, 50));
+  try {
+    const r = await fetch(url);
+    const plan = await r.json();
+    window.GENESIS.loadPlan(plan);
+    console.log(`[Genesis] Auto-loaded ${wanted} from ${url}`);
+  } catch (e) {
+    console.error(`[Genesis] Auto-load failed for ${wanted}:`, e);
+  }
+})();
