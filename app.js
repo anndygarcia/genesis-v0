@@ -247,15 +247,21 @@ function buildHouse(plan) {
     });
 
     // ---- Outer walls (per-floor) ----
-    addOuterWallOnGroup(plan, 0, 0,                           floorFp.w, WALL_T_LOCAL, 's', elevation);
-    addOuterWallOnGroup(plan, 0, floorFp.d - WALL_T_LOCAL,    floorFp.w, WALL_T_LOCAL, 'n', elevation);
-    addOuterWallOnGroup(plan, 0, 0,                           WALL_T_LOCAL, floorFp.d, 'w', elevation);
-    addOuterWallOnGroup(plan, floorFp.w - WALL_T_LOCAL, 0,    WALL_T_LOCAL, floorFp.d, 'e', elevation);
+    let sm;
+    sm = addOuterWallOnGroup(plan, 0, 0,                           floorFp.w, WALL_T_LOCAL, 's', elevation);
+    if (sm) floorGroup.add(sm);
+    sm = addOuterWallOnGroup(plan, 0, floorFp.d - WALL_T_LOCAL,    floorFp.w, WALL_T_LOCAL, 'n', elevation);
+    if (sm) floorGroup.add(sm);
+    sm = addOuterWallOnGroup(plan, 0, 0,                           WALL_T_LOCAL, floorFp.d, 'w', elevation);
+    if (sm) floorGroup.add(sm);
+    sm = addOuterWallOnGroup(plan, floorFp.w - WALL_T_LOCAL, 0,    WALL_T_LOCAL, floorFp.d, 'e', elevation);
+    if (sm) floorGroup.add(sm);
 
     // ---- Interior walls (from canonical derivation, filtered to this floor) ----
     for (const w of state.house.interiorWalls) {
       if (!w.rooms || !w.rooms.some(rid => floorRooms.some(r => r.id === rid))) continue;
-      addInnerWallOnGroup(w, elevation);
+      const wallMesh = addInnerWallOnGroup(w, elevation);
+      if (wallMesh) floorGroup.add(wallMesh);
     }
 
     // ---- Doors & Windows — only on this floor's openings ----
@@ -264,12 +270,14 @@ function buildHouse(plan) {
     floorDoors.forEach(d => {
       const hostWall = findHostWall(d);
       const wallH = hostWall?.height || 9;
-      addDoorOnGroup(d, wallH + elevation);
+      const doorMesh = addDoorOnGroup(d, wallH + elevation);
+      if (doorMesh) floorGroup.add(doorMesh);
     });
     floorWindows.forEach(w => {
       const hostWall = findHostWall(w);
       const wallH = hostWall?.height || 9;
-      addWindowOnGroup(w, wallH + elevation);
+      const winMesh = addWindowOnGroup(w, wallH + elevation);
+      if (winMesh) floorGroup.add(winMesh);
     });
 
     // ---- Roof on TOPMOST floor only ----
