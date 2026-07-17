@@ -281,6 +281,23 @@
       "color": "#d7d7d7",
       "accent": "#5d4037",
       "notes": "8' CLG., furnace + water heater + attic access"
+    },
+    {
+      "id": "stair_f1f2",
+      "name": "Stair (1F → 2F)",
+      "x": 50.6,
+      "z": 18.2,
+      "w": 7,
+      "d": 18.2,
+      "h": 9,
+      "kind": "stairs",
+      "toElevation": 10,
+      "riserFt": 0.625,
+      "treadFt": 0.917,
+      "direction": "z+",
+      "color": "#fff0d0",
+      "accent": "#5d4037",
+      "notes": "Straight-run stair, 7' wide, 18'-2\" long; 16 steps × 7.5\" rise × 11\" tread"
     }
   ],
   "doors": [
@@ -468,7 +485,8 @@
         "pantry",
         "dining",
         "foyer",
-        "courtyard"
+        "courtyard",
+        "stair_f1f2"
       ],
       "elevation": 0
     },

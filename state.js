@@ -118,6 +118,15 @@ export function validatePlan(raw) {
       color:      String(r.color || '#e6edf3'),
       accent:     String(r.accent || '#666'),
       notes:      String(r.notes || ''),
+      // Extra type metadata — 'stairs' triggers buildStairs() instead of
+      // a floor tile; toElevation/riserFt/treadFt/direction parameterize
+      // the stair geometry. Other type values fall through to the
+      // standard floor-tile path.
+      kind:        r.kind ? String(r.kind) : '',
+      toElevation: r.toElevation != null ? Number(r.toElevation) : null,
+      riserFt:     r.riserFt != null ? Number(r.riserFt) : null,
+      treadFt:     r.treadFt != null ? Number(r.treadFt) : null,
+      direction:   r.direction ? String(r.direction) : '',
     };
   });
 

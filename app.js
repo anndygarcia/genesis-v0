@@ -228,8 +228,16 @@ function buildHouse(plan) {
       floorGroup.add(deck);
     }
 
-    // ---- Per-room floor tiles ----
+    // ---- Per-room floor tiles (skip stair rooms — they get stairs) ----
     floorRooms.forEach(room => {
+      if (room.kind === 'stairs') {
+        // Stairs: build parametric staircase that connects this floor
+        // up to the next-floor elevation.
+        const stair = buildStairs(room, elevation);
+        floorGroup.add(stair);
+        // Label still appears for navigation (already added below)
+        return;
+      }
       const flGeo = new THREE.BoxGeometry(room.w, 0.05, room.d);
       const flMat = floorForRoom(room);
       const fl = new THREE.Mesh(flGeo, flMat);
@@ -692,6 +700,193 @@ function makeCarpetTexture(size = 256) {
   return t;
 }
 const carpetTex = makeCarpetTexture();
+
+// ---------------------------------------------------------------
+// Stairs — generate a parametric straight-flight staircase. Each
+// stair "room" in the plan (`rooms[].kind === 'stairs'`) becomes
+// a series of step meshes rising from elevation=elevation to
+// elevation+room.toElevation. The stair volume also gets side
+// stringers + simple post-and-rail handrails.
+//
+// Parameters (in room):
+//   kind:        'stairs'
+//   riserFt:     height of one step (default 0.625 ft = 7.5 in, IRC)
+//   treadFt:     depth of one step (default 0.917 ft = 11 in, IRC)
+//   toElevation: where the stair stops (e.g. 10 for floor-2 deck)
+//   direction:   'x+' | 'x-' | 'z+' | 'z-' (which way the steps run)
+//
+// Returns a THREE.Group containing all steps + stringers.
+// ---------------------------------------------------------------
+function buildStairs(room, elevation = 0) {
+  const riserFt = Number(room.riserFt) || 0.625;          // 7.5"
+  const treadFt = Number(room.treadFt) || 0.917;          // 11"
+  const toElev = Number(room.toElevation) || elevation + 10;
+  const direction = room.direction || 'z+';
+  const totalRise = Math.max(0.01, toElev - elevation);
+  const nRisers = Math.max(1, Math.ceil(totalRise / riserFt));
+  const actualRiser = totalRise / nRisers;
+  const nTreads = nRisers;                  // standard: n-1 treads between n risers, plus a landing
+  const runFt = nTreads * treadFt;
+  // Direction vectors
+  const isAlong = direction[0] === 'z';
+  const lengthFt = isAlong ? room.d : room.w;
+  const widthFt = isAlong ? room.w : room.d;
+  const sign = direction.endsWith('+') ? 1 : -1;
+
+  const grp = new THREE.Group();
+  grp.name = room.id;
+  grp.userData = {
+    kind: 'stairs',
+    roomId: room.id,
+    nRisers, nTreads,
+    toElevation: toElev,
+    riserFt: actualRiser,
+    treadFt,
+    direction,
+  };
+
+  const stepMat = new THREE.MeshStandardMaterial({
+    map: woodTex.clone(),
+    color: 0x8d6e63,
+    roughness: 0.78,
+    metalness: 0,
+  });
+  const stringerMat = new THREE.MeshStandardMaterial({
+    color: 0x5d4037,
+    roughness: 0.6,
+    metalness: 0,
+    envMapIntensity: 0.4,
+  });
+  const railMat = new THREE.MeshStandardMaterial({
+    color: 0x4a4a4a,
+    roughness: 0.4,
+    metalness: 0.6,
+  });
+
+  // Scale the stair to fit the room footprint if smaller than ideal.
+  // Otherwise it just stays within the room. We never scale UP past 1.0
+  // because steps should be standard residential.
+  const scaleFactor = Math.min(1.0, lengthFt / runFt);
+
+  // Body of stair: place steps on a line along (lengthFt * direction)
+  for (let i = 0; i < nTreads; i++) {
+    const offset = i * treadFt * scaleFactor;
+    const stepX = (isAlong ? offset : 0) * sign;
+    const stepZ = (isAlong ? 0 : offset) * sign;
+    const stepWidth = (isAlong ? widthFt : widthFt) - 0.2; // slight margin
+    const stepDepth = treadFt * scaleFactor;
+    const stepRise = actualRiser;
+    const treadGeo = new THREE.BoxGeometry(
+      isAlong ? stepDepth : stepWidth,
+      stepRise,
+      isAlong ? stepWidth : stepDepth,
+    );
+    const tread = new THREE.Mesh(treadGeo, stepMat);
+    tread.position.set(
+      room.x + (isAlong ? room.w / 2 : stepWidth / 2 + 0.1) + stepX,
+      elevation + actualRiser * i + actualRiser / 2,
+      room.z + (isAlong ? stepWidth / 2 + 0.1 : room.d / 2) + stepZ,
+    );
+    tread.castShadow = true;
+    tread.receiveShadow = true;
+    tread.userData = {
+      kind: 'stair-tread', roomId: room.id, stepIndex: i,
+    };
+    INTERACTABLE.push(tread);
+    grp.add(tread);
+  }
+
+  // Stringers — diagonal sloped panels under the stair, on both sides
+  for (const side of [-1, 1]) {
+    const stringerGeo = new THREE.BoxGeometry(0.2, 0.2, runFt + 1);
+    const stringer = new THREE.Mesh(stringerGeo, stringerMat);
+    // Position each stringer along the long axis
+    stringer.position.set(
+      isAlong ? room.x + room.w / 2 : room.x + (room.w / 2 + 0.2 * side),
+      elevation + totalRise / 2,
+      isAlong ? room.z + (room.d / 2 + 0.2 * side) : room.z + room.d / 2,
+    );
+    if (isAlong) stringer.rotation.x = -Math.atan2(actualRiser, treadFt * scaleFactor) * sign;
+    else         stringer.rotation.z = Math.atan2(actualRiser, treadFt * scaleFactor) * sign;
+    stringer.castShadow = true;
+    stringer.receiveShadow = true;
+    stringer.userData = { kind: 'stair-stringer', roomId: room.id };
+    grp.add(stringer);
+  }
+
+  // Landings — small flat tile at top + bottom
+  const landMat = new THREE.MeshStandardMaterial({
+    map: woodTex.clone(),
+    color: 0x8d6e63,
+    roughness: 0.7,
+  });
+  // Bottom landing (already covered by floor, but a thicker slab helps visually)
+  const land0 = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      isAlong ? 1 : widthFt,
+      0.1,
+      isAlong ? widthFt : 1,
+    ),
+    landMat,
+  );
+  land0.position.set(
+    room.x + (isAlong ? room.w / 2 : room.w / 2),
+    elevation + 0.05,
+    room.z + (isAlong ? room.d / 2 : room.d / 2),
+  );
+  land0.receiveShadow = true;
+  grp.add(land0);
+  // Top landing (the deck edge)
+  const landTop = land0.clone();
+  landTop.position.set(
+    room.x + (isAlong ? room.w / 2 : room.w / 2),
+    elevation + totalRise + 0.05,
+    room.z + (isAlong ? room.d / 2 : room.d / 2),
+  );
+  landTop.receiveShadow = true;
+  grp.add(landTop);
+
+  // Handrails — simple post-and-rail on both sides
+  const railHeight = 3.0;          // ft, above the stair
+  const postSpacing = 5;           // ft, one post every N steps
+  const bottomY = elevation;
+  for (const side of [-1, 1]) {
+    // Posts
+    for (let p = 0; p <= nTreads; p += postSpacing) {
+      const offX = (isAlong ? p * treadFt * scaleFactor : 0) * sign;
+      const offZ = (isAlong ? 0 : p * treadFt * scaleFactor) * sign;
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, railHeight, 0.15),
+        railMat,
+      );
+      post.position.set(
+        room.x + (isAlong ? room.w / 2 : widthFt / 2 + 0.5) + offX + (isAlong ? 0 : side * 0.6),
+        bottomY + railHeight / 2,
+        room.z + (isAlong ? widthFt / 2 + 0.5 : room.d / 2) + offZ + (isAlong ? side * 0.6 : 0),
+      );
+      post.castShadow = true;
+      grp.add(post);
+    }
+    // Rail (a sloped box from bottom to top)
+    const railGeo = new THREE.BoxGeometry(
+      isAlong ? runFt + 1 : 0.15,
+      0.1,
+      isAlong ? 0.15 : runFt + 1,
+    );
+    const rail = new THREE.Mesh(railGeo, railMat);
+    rail.position.set(
+      room.x + (isAlong ? room.w / 2 : widthFt / 2 + 0.5) + (runFt * sign) / 2,
+      bottomY + totalRise + railHeight,
+      room.z + (isAlong ? widthFt / 2 + 0.5 : room.d / 2) + (isAlong ? side * 0.6 : (runFt * sign) / 2),
+    );
+    if (isAlong) rail.rotation.x = -Math.atan2(actualRiser, treadFt * scaleFactor) * sign;
+    else         rail.rotation.z = Math.atan2(actualRiser, treadFt * scaleFactor) * sign;
+    rail.castShadow = true;
+    grp.add(rail);
+  }
+
+  return grp;
+}
 
 // Per-room floor material — keep the colors VIBRANT (the room-color tiles
 // are the strongest visual identity of this demo), but use PBR so reflections
