@@ -443,5 +443,439 @@
         "linen"
       ]
     }
+  ],
+  "doors": [
+    {
+      "id": "front_entry",
+      "host": "entry_porch",
+      "x": 11.5,
+      "z": 55.8,
+      "w": 3,
+      "axis": "z",
+      "kind": "exterior",
+      "label": "Front Entry (Single, Insulated)"
+    },
+    {
+      "id": "foyer_to_dining",
+      "host": "foyer",
+      "x": 59.5,
+      "z": 36.4,
+      "w": 3,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Foyer → Dining"
+    },
+    {
+      "id": "foyer_to_stair",
+      "host": "foyer",
+      "x": 53.4,
+      "z": 47.0,
+      "w": 3,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Foyer → Stair"
+    },
+    {
+      "id": "dining_to_kit",
+      "host": "dining",
+      "x": 47.0,
+      "z": 36.4,
+      "w": 3,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Dining → Kitchen"
+    },
+    {
+      "id": "dining_to_foyer",
+      "host": "dining",
+      "x": 45.6,
+      "z": 42.0,
+      "w": 3,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Dining → Foyer"
+    },
+    {
+      "id": "brkf_to_kit",
+      "host": "breakfast",
+      "x": 19.8,
+      "z": 45.5,
+      "w": 3,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Breakfast → Kitchen"
+    },
+    {
+      "id": "br2_to_bath2",
+      "host": "br2",
+      "x": 11.5,
+      "z": 49.2,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Bedroom 2 → Bath 2"
+    },
+    {
+      "id": "br2_to_closet",
+      "host": "br2",
+      "x": 17.5,
+      "z": 49.2,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Bedroom 2 → Closet"
+    },
+    {
+      "id": "study_to_mb",
+      "host": "study",
+      "x": 56.0,
+      "z": 13.4,
+      "w": 3,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Study → Master Bdrm"
+    },
+    {
+      "id": "wic_to_mb",
+      "host": "wic",
+      "x": 50.4,
+      "z": 14.0,
+      "w": 3,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Closet → Master"
+    },
+    {
+      "id": "mba_to_mb",
+      "host": "master_bath",
+      "x": 24.0,
+      "z": 18.0,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Master Bath → Master"
+    },
+    {
+      "id": "pantry_to_kit",
+      "host": "pantry",
+      "x": 53.6,
+      "z": 26.5,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Pantry → Kitchen"
+    },
+    {
+      "id": "laundry_to_fam",
+      "host": "laundry",
+      "x": 6.8,
+      "z": 13.5,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Laundry → Family Rm"
+    },
+    {
+      "id": "cov_to_master_bath",
+      "host": "cov_porch",
+      "x": 17.5,
+      "z": 11.0,
+      "w": 3,
+      "axis": "z",
+      "kind": "exterior",
+      "label": "Cov. Porch → Master Bath"
+    },
+    {
+      "id": "fam_to_porte",
+      "host": "family_rm",
+      "x": 21.0,
+      "z": 30.0,
+      "w": 3,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Family Rm → Porte-cochère"
+    },
+    {
+      "id": "fam_to_pantry",
+      "host": "family_rm",
+      "x": 38.5,
+      "z": 22.0,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Family Rm → Pantry"
+    },
+    {
+      "id": "kit_to_pantry_closet",
+      "host": "kitchen",
+      "x": 53.6,
+      "z": 22.0,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Kitchen → Closet"
+    },
+    {
+      "id": "stair_to_foyer",
+      "host": "stair_f1f2",
+      "x": 53.4,
+      "z": 52.2,
+      "w": 3,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Stair → Foyer"
+    },
+    {
+      "id": "courtyard_to_fam",
+      "host": "courtyard",
+      "x": 26.6,
+      "z": 50.0,
+      "w": 6,
+      "axis": "x",
+      "kind": "exterior",
+      "label": "Courtyard → Family (Sliding)"
+    },
+    {
+      "id": "bath2_to_entry_porch",
+      "host": "bath2",
+      "x": 16.4,
+      "z": 49.2,
+      "w": 2.5,
+      "axis": "x",
+      "kind": "interior",
+      "label": "Bath 2 → Entry"
+    },
+    {
+      "id": "br3_to_bath3",
+      "host": "br3",
+      "x": 28.0,
+      "z": 1.5,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Bedroom 3 → Bath 3"
+    },
+    {
+      "id": "br4_to_bath3",
+      "host": "br4",
+      "x": 17.5,
+      "z": 1.5,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Bedroom 4 → Bath 3"
+    },
+    {
+      "id": "game_to_hall",
+      "host": "game_room",
+      "x": 50.0,
+      "z": 17.5,
+      "w": 3,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Game Room → Hall"
+    },
+    {
+      "id": "br5_to_bath4",
+      "host": "br5",
+      "x": 65.0,
+      "z": 11.2,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "interior",
+      "label": "Bedroom 5 → Bath 4"
+    }
+  ],
+  "windows": [
+    {
+      "id": "win_mb_1",
+      "host": "master_br",
+      "x": 32.0,
+      "z": 0.0,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "fixed",
+      "label": "MB (3)3020 FX #1"
+    },
+    {
+      "id": "win_mb_2",
+      "host": "master_br",
+      "x": 37.5,
+      "z": 0.0,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "fixed",
+      "label": "MB (3)3020 FX #2"
+    },
+    {
+      "id": "win_mb_3",
+      "host": "master_br",
+      "x": 43.0,
+      "z": 0.0,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "fixed",
+      "label": "MB (3)3020 FX #3"
+    },
+    {
+      "id": "win_mba_1",
+      "host": "master_bath",
+      "x": 19.8,
+      "z": 11.0,
+      "w": 2.5,
+      "axis": "z",
+      "kind": "fixed",
+      "label": "MBA 3020 FX"
+    },
+    {
+      "id": "win_fam_1",
+      "host": "family_rm",
+      "x": 23.0,
+      "z": 39.8,
+      "w": 5,
+      "axis": "z",
+      "kind": "sh",
+      "label": "FR (3)3060 SH #1"
+    },
+    {
+      "id": "win_fam_2",
+      "host": "family_rm",
+      "x": 30.5,
+      "z": 39.8,
+      "w": 5,
+      "axis": "z",
+      "kind": "sh",
+      "label": "FR (3)3060 SH #2"
+    },
+    {
+      "id": "win_fam_3",
+      "host": "family_rm",
+      "x": 38.0,
+      "z": 39.8,
+      "w": 5,
+      "axis": "z",
+      "kind": "sh",
+      "label": "FR (3)3060 SH #3"
+    },
+    {
+      "id": "win_kit_1",
+      "host": "kitchen",
+      "x": 40.4,
+      "z": 27.5,
+      "w": 4,
+      "axis": "x",
+      "kind": "sh",
+      "label": "KIT 3060 SH over sink"
+    },
+    {
+      "id": "win_br2_1",
+      "host": "br2",
+      "x": 6.5,
+      "z": 43.2,
+      "w": 4,
+      "axis": "x",
+      "kind": "sh_egress",
+      "label": "BR.2 3050 SH Egress"
+    },
+    {
+      "id": "win_bath2",
+      "host": "bath2",
+      "x": 16.4,
+      "z": 43.2,
+      "w": 3,
+      "axis": "x",
+      "kind": "frosted",
+      "label": "B.2 2030 frosted"
+    },
+    {
+      "id": "win_br3_1",
+      "host": "br3",
+      "x": 37.5,
+      "z": 0.0,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh_egress",
+      "label": "BR.3 3050 SH Egress"
+    },
+    {
+      "id": "win_br3_2",
+      "host": "br3",
+      "x": 41.0,
+      "z": 0.0,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh",
+      "label": "BR.3 3050 SH"
+    },
+    {
+      "id": "win_br4_1",
+      "host": "br4",
+      "x": 9.0,
+      "z": 0.0,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh_egress",
+      "label": "BR.4 3050 SH Egress"
+    },
+    {
+      "id": "win_br4_2",
+      "host": "br4",
+      "x": 18.5,
+      "z": 0.0,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh",
+      "label": "BR.4 3050 SH"
+    },
+    {
+      "id": "win_br5_1",
+      "host": "br5",
+      "x": 65.0,
+      "z": 0.0,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh_egress",
+      "label": "BR.5 3050 SH Egress"
+    },
+    {
+      "id": "win_game_1",
+      "host": "game_room",
+      "x": 56.0,
+      "z": 17.5,
+      "w": 4,
+      "axis": "z",
+      "kind": "sh",
+      "label": "Game 3050 SH"
+    },
+    {
+      "id": "win_mba_2",
+      "host": "master_bath",
+      "x": 22.0,
+      "z": 23.4,
+      "w": 3,
+      "axis": "z",
+      "kind": "frosted",
+      "label": "MBA frosted 2030"
+    },
+    {
+      "id": "win_bath3",
+      "host": "bath3",
+      "x": 28.0,
+      "z": 9.0,
+      "w": 3,
+      "axis": "z",
+      "kind": "frosted",
+      "label": "B.3 frosted"
+    },
+    {
+      "id": "win_bath4",
+      "host": "bath4",
+      "x": 56.0,
+      "z": 28.5,
+      "w": 3,
+      "axis": "z",
+      "kind": "frosted",
+      "label": "B.4 frosted"
+    }
   ]
 }

@@ -85,6 +85,27 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
 camera.position.set(50, 42, 58);
 camera.lookAt(23, 4, 15);
 
+// Fit camera distance to the plan's bounding box so any size home —
+// from a 30'-square cottage to a 100'-wide mansion — frames correctly.
+// Called from rebuildSceneFromPlan() after a new plan loads.
+function fitCameraToPlan(plan) {
+  if (!plan || !plan.footprint) return;
+  const fp = plan.footprint;
+  const cx = fp.w / 2;
+  const cz = fp.d / 2;
+  const maxDim = Math.max(fp.w, fp.d);
+  // Distance to fit: 1.6× the longest side at the camera's 50° FOV.
+  // Adds headroom for 2-story buildings (assumed ~12 ft max h).
+  const dist = Math.max(45, maxDim * 1.6);
+  const target = new THREE.Vector3(cx, 4, cz);
+  camera.position.set(cx + dist * 0.55, dist * 0.62, cz + dist * 0.65);
+  camera.lookAt(target);
+  // orbit controls module declared further down — check window.GENESIS too
+  const orb = window.GENESIS?.orbit;
+  if (orb && typeof orb.update === 'function') orb.update();
+  if (renderer) renderer.render(scene, camera);
+}
+
 // =============================================================
 //   HOUSE GROUP — every mesh that's rebuildable (walls, floors,
 //   doors, windows, foundation, porch, patio, roof, labels) is
@@ -2330,10 +2351,12 @@ window.GENESIS = {
     const result = loadPlan(plan);
     buildHouse(state.house.plan);
     rebuildSceneFromPlan(state.house.plan);
+    fitCameraToPlan(state.house.plan);    // reframe to the new bounding box
     return result;
   },
   describe,                      // () → human-readable summary of current house
   getRoom, getWall, getOpening,  // id lookups
+  fitCameraToPlan,               // re-frame camera to current plan bbox
 
   // ----- scene handles (legacy; exposed for devtools / 3rd-party scripts) -----
   scene, camera, orbit,
