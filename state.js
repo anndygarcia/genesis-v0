@@ -127,6 +127,13 @@ export function validatePlan(raw) {
       riserFt:     r.riserFt != null ? Number(r.riserFt) : null,
       treadFt:     r.treadFt != null ? Number(r.treadFt) : null,
       direction:   r.direction ? String(r.direction) : '',
+      // Open / wall-skip flags for non-rectangular footprints.
+      //   open:   `true` for courtyards, atria — no walls at all on this room.
+      //   noWalls: array of side names ('n','s','e','w') that should be
+      //            skipped when building walls for this room's box. Used
+      //            for porte-cochère (open 3 sides), porches, etc.
+      open:    r.open === true,
+      noWalls: Array.isArray(r.noWalls) ? r.noWalls.map(String) : [],
     };
   });
 

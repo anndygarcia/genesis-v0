@@ -247,15 +247,23 @@ function buildHouse(plan) {
     });
 
     // ---- Outer walls (per-floor) ----
-    let sm;
-    sm = addOuterWallOnGroup(plan, 0, 0,                           floorFp.w, WALL_T_LOCAL, 's', elevation);
-    if (sm) floorGroup.add(sm);
-    sm = addOuterWallOnGroup(plan, 0, floorFp.d - WALL_T_LOCAL,    floorFp.w, WALL_T_LOCAL, 'n', elevation);
-    if (sm) floorGroup.add(sm);
-    sm = addOuterWallOnGroup(plan, 0, 0,                           WALL_T_LOCAL, floorFp.d, 'w', elevation);
-    if (sm) floorGroup.add(sm);
-    sm = addOuterWallOnGroup(plan, floorFp.w - WALL_T_LOCAL, 0,    WALL_T_LOCAL, floorFp.d, 'e', elevation);
-    if (sm) floorGroup.add(sm);
+    // Each room can declare which of its sides have NO wall via
+    //   noWalls: ['n','s','e','w']
+    // where the side names are the room's own sides (so a room at
+    // z=0 with noWalls: ['n'] means no wall on its northern edge).
+    // The perimeter wall on a side of the building is built only
+    // when at least one room on that perimeter side does NOT close it
+    // (i.e. is open: true or noWalls includes that side).
+    const closes = (side) => floorRooms.some(r =>
+      side === 'n' ? (r.z === 0 && !r.open && !r.noWalls.includes('n')) :
+      side === 's' ? (r.z + r.d === floorFp.d && !r.open && !r.noWalls.includes('s')) :
+      side === 'w' ? (r.x === 0 && !r.open && !r.noWalls.includes('w')) :
+      /* side === 'e' */   (r.x + r.w === floorFp.w && !r.open && !r.noWalls.includes('e'))
+    );
+    if (closes('n')) { const m = addOuterWallOnGroup(plan, 0, 0, floorFp.w, WALL_T_LOCAL, 's', elevation); if (m) floorGroup.add(m); }
+    if (closes('s')) { const m = addOuterWallOnGroup(plan, 0, floorFp.d - WALL_T_LOCAL, floorFp.w, WALL_T_LOCAL, 'n', elevation); if (m) floorGroup.add(m); }
+    if (closes('w')) { const m = addOuterWallOnGroup(plan, 0, 0, WALL_T_LOCAL, floorFp.d, 'w', elevation); if (m) floorGroup.add(m); }
+    if (closes('e')) { const m = addOuterWallOnGroup(plan, floorFp.w - WALL_T_LOCAL, 0, WALL_T_LOCAL, floorFp.d, 'e', elevation); if (m) floorGroup.add(m); }
 
     // ---- Interior walls (from canonical derivation, filtered to this floor) ----
     for (const w of state.house.interiorWalls) {

@@ -1,5 +1,5 @@
 {
-  "name": "Garcia/Caballero Residence — 1st floor",
+  "name": "Garcia/Caballero Residence",
   "planNumber": 19,
   "client": "Garcia & Caballero",
   "designer": "DCA Design LLC — David Cox, cpbd",
@@ -7,184 +7,273 @@
   "dimensions_source": "DCA plans 06-12-19",
   "rooms": [
     {
-      "id": "study",
-      "name": "Study",
+      "id": "cov_porch",
+      "name": "Covered Porch",
       "x": 0,
       "z": 0,
-      "w": 12,
-      "d": 13.4,
-      "h": 11,
-      "color": "#f0e6d2",
-      "accent": "#8b6f47",
-      "notes": "11' CLG. FROM RAISED SLAB"
+      "w": 18.2,
+      "d": 11,
+      "h": 10,
+      "color": "#ece4d4",
+      "accent": "#8d6e63",
+      "noWalls": [
+        "n"
+      ],
+      "notes": "10' CLG., covered front porch; open (no wall) on north side"
     },
     {
-      "id": "wic",
-      "name": "Walk-in Closet",
-      "x": 12,
-      "z": 0,
-      "w": 12,
-      "d": 14,
-      "h": 11,
-      "color": "#fff3e6",
-      "accent": "#c19a6b",
-      "notes": "11' CLG."
+      "id": "laundry",
+      "name": "Laundry",
+      "x": 0,
+      "z": 11,
+      "w": 6.8,
+      "d": 9.2,
+      "h": 10,
+      "color": "#d4e6f1",
+      "accent": "#37474f",
+      "notes": "10' CLG., vent dryer thru wall"
+    },
+    {
+      "id": "breakfast",
+      "name": "Breakfast Nook",
+      "x": 6.8,
+      "z": 11,
+      "w": 13,
+      "d": 9.8,
+      "h": 10,
+      "color": "#fcd6b6",
+      "accent": "#e65100",
+      "notes": "10' CLG.; window (3)3060 SH @ 8'-0\" HH; 4'-1\" × 5'-6\" soffit corner"
     },
     {
       "id": "master_bath",
       "name": "Master Bath",
-      "x": 24,
-      "z": 0,
+      "x": 19.8,
+      "z": 11,
       "w": 11.2,
       "d": 12.4,
       "h": 11,
       "color": "#e6f3ff",
       "accent": "#1e88e5",
-      "notes": "11' CLG."
+      "notes": "11' CLG.; freestanding 36\"×72\" soaker tub, code-approved railings"
     },
     {
       "id": "master_br",
       "name": "Master Bedroom",
-      "x": 35.2,
+      "x": 31,
       "z": 0,
       "w": 15.4,
       "d": 18.2,
       "h": 10,
       "color": "#e6d8f5",
       "accent": "#6a1b9a",
-      "notes": "TRAY CLG. W/ LIGHT COVE"
+      "notes": "TRAY CLG. W/ LIGHT COVE, (3)3020 FX @ 10'-0\" HH, body of drawers here"
     },
     {
-      "id": "br2",
-      "name": "Bedroom 2",
-      "x": 50.6,
+      "id": "wic",
+      "name": "Master Closet",
+      "x": 46.4,
       "z": 0,
-      "w": 13,
-      "d": 12.6,
-      "h": 10,
-      "color": "#f5d8e3",
-      "accent": "#ad1457",
-      "notes": "10' CLG."
+      "w": 12,
+      "d": 14,
+      "h": 11,
+      "color": "#fff3e6",
+      "accent": "#c19a6b",
+      "notes": "11' CLG., open to master bedroom"
     },
     {
-      "id": "laundry",
-      "name": "Laundry",
-      "x": 63.6,
+      "id": "study",
+      "name": "Study",
+      "x": 58.4,
       "z": 0,
-      "w": 6.8,
-      "d": 9.2,
-      "h": 10,
-      "color": "#d4e6f1",
-      "accent": "#37474f",
-      "notes": "10' CLG."
+      "w": 22.1,
+      "d": 13.4,
+      "h": 11,
+      "color": "#f0e6d2",
+      "accent": "#8b6f47",
+      "notes": "11' CLG. FROM RAISED SLAB; cabinetry f.f.; light cove on top"
     },
     {
       "id": "porte_cochere",
       "name": "Porte-cochère",
       "x": 0,
-      "z": 13.4,
+      "z": 20.2,
       "w": 21,
       "d": 23,
       "h": 10,
       "color": "#e8d8b8",
       "accent": "#5d4037",
-      "notes": "10' CLG., open on three sides, attached carport"
+      "noWalls": [
+        "n",
+        "w",
+        "s"
+      ],
+      "notes": "10' CLG., open carport on 3 sides (n/w/s)"
     },
     {
       "id": "family_rm",
       "name": "Family Room",
-      "x": 0,
-      "z": 36.4,
+      "x": 21,
+      "z": 20.2,
       "w": 19.4,
       "d": 19.6,
       "h": 12,
       "color": "#dde4cb",
       "accent": "#558b2f",
-      "notes": "12' CLG."
-    },
-    {
-      "id": "breakfast",
-      "name": "Breakfast Nook",
-      "x": 19.4,
-      "z": 36.4,
-      "w": 13,
-      "d": 9.8,
-      "h": 10,
-      "color": "#fcd6b6",
-      "accent": "#e65100",
-      "notes": "10' CLG."
+      "notes": "12' CLG.; 42\" fireplace in west wall; under stair storage"
     },
     {
       "id": "kitchen",
       "name": "Kitchen",
-      "x": 32.4,
-      "z": 36.4,
+      "x": 40.4,
+      "z": 20.2,
       "w": 13.2,
       "d": 11,
       "h": 10,
       "color": "#dcd0e8",
       "accent": "#4527a0",
-      "notes": "10' CLG., adjacent to pantry"
+      "notes": "10' CLG., 42\" REF; range; btm of header @ 8'-0\""
+    },
+    {
+      "id": "closet_kit",
+      "name": "Closet",
+      "x": 53.6,
+      "z": 20.2,
+      "w": 6.8,
+      "d": 4.2,
+      "h": 10,
+      "color": "#ece4d4",
+      "accent": "#8d6e63",
+      "notes": "10' CLG., under-stair closet"
     },
     {
       "id": "pantry",
       "name": "Pantry",
-      "x": 32.4,
-      "z": 47.4,
+      "x": 53.6,
+      "z": 24.4,
       "w": 8,
       "d": 4.2,
       "h": 10,
       "color": "#ffe6cc",
       "accent": "#a0522d",
-      "notes": "Walk-in pantry off kitchen"
+      "notes": "walk-in pantry"
     },
     {
       "id": "dining",
-      "name": "Dining (2-story)",
-      "x": 45.6,
+      "name": "Dining",
+      "x": 40.4,
       "z": 36.4,
       "w": 13,
       "d": 15.8,
       "h": 22,
       "color": "#c5d6c0",
       "accent": "#33691e",
-      "notes": "10' CLG. TWO-STORY; open to above"
+      "notes": "10' CLG. two-story; (3)3060 SH @ 6'-8\" HH; open to floor above"
     },
     {
       "id": "foyer",
-      "name": "Foyer (raised)",
-      "x": 58.6,
+      "name": "Foyer",
+      "x": 53.4,
       "z": 36.4,
-      "w": 11.8,
+      "w": 13,
       "d": 15.8,
       "h": 22,
       "color": "#dad7c8",
       "accent": "#5d4037",
-      "notes": "Raised foyer, two-story volume"
+      "notes": "TWO-STORY 11' CLG; stair hall with double-height volume above"
+    },
+    {
+      "id": "br2",
+      "name": "Bedroom 2",
+      "x": 0,
+      "z": 43.2,
+      "w": 13,
+      "d": 12.6,
+      "h": 10,
+      "color": "#f5d8e3",
+      "accent": "#ad1457",
+      "notes": "10' CLG.; (2)3060 SH @ 8'-0\" HH EGRESS window"
+    },
+    {
+      "id": "bath2",
+      "name": "Bath 2",
+      "x": 13,
+      "z": 43.2,
+      "w": 6.8,
+      "d": 6,
+      "h": 10,
+      "color": "#e0f7fa",
+      "accent": "#0891b2",
+      "notes": "10' CLG., full bath"
+    },
+    {
+      "id": "closet_br2",
+      "name": "Closet",
+      "x": 19.8,
+      "z": 49.2,
+      "w": 6.8,
+      "d": 6,
+      "h": 10,
+      "color": "#ece4d4",
+      "accent": "#8d6e63",
+      "notes": "Closet near Bedroom 2"
     },
     {
       "id": "courtyard",
       "name": "Courtyard",
-      "x": 58.6,
-      "z": 52.2,
+      "x": 26.6,
+      "z": 43.2,
       "w": 12,
       "d": 10.4,
       "h": 0,
-      "color": "#c2d6a4",
-      "accent": "#33691e",
-      "notes": "Outdoor courtyard, open air"
+      "color": "#dadada",
+      "accent": "#5d4037",
+      "open": true,
+      "notes": "open-air at south-east interior; h=0 (no walls)"
+    },
+    {
+      "id": "stair_f1f2",
+      "name": "Stair (1F → 2F)",
+      "x": 53.4,
+      "z": 52.2,
+      "w": 13.2,
+      "d": 9.8,
+      "h": 9,
+      "kind": "stairs",
+      "toElevation": 10,
+      "riserFt": 0.625,
+      "treadFt": 0.917,
+      "direction": "z+",
+      "color": "#fff0d0",
+      "accent": "#5d4037",
+      "notes": "16-step straight-run staircase, 7' wide, 13'-2\" run"
+    },
+    {
+      "id": "entry_porch",
+      "name": "Entry Porch",
+      "x": 0,
+      "z": 55.8,
+      "w": 26.6,
+      "d": 6.2,
+      "h": 10,
+      "color": "#e8d8b8",
+      "accent": "#5d4037",
+      "noWalls": [
+        "s"
+      ],
+      "notes": "11' CLG., 8'-0\" × 13'-0\" entry vestibule; open on south face"
     },
     {
       "id": "br3",
       "name": "Bedroom 3",
-      "x": 30,
+      "x": 31,
       "z": 0,
       "w": 13,
       "d": 15,
       "h": 9,
       "color": "#f3e8f3",
       "accent": "#ad1457",
-      "notes": "9' CLG., egress window (2)3050 SH"
+      "notes": "9' CLG., (2)3050 SH EGRESS window"
     },
     {
       "id": "br4",
@@ -196,43 +285,7 @@
       "h": 9,
       "color": "#f3e8f3",
       "accent": "#ad1457",
-      "notes": "9' CLG., egress window 3050 SH"
-    },
-    {
-      "id": "br5",
-      "name": "Bedroom 5",
-      "x": 47.5,
-      "z": 17.5,
-      "w": 11.2,
-      "d": 11.2,
-      "h": 9,
-      "color": "#f3e8f3",
-      "accent": "#ad1457",
-      "notes": "9' CLG., 11'-2\" x 11'-2\""
-    },
-    {
-      "id": "bath3",
-      "name": "Bath 3",
-      "x": 22,
-      "z": 0,
-      "w": 8,
-      "d": 9,
-      "h": 9,
-      "color": "#e0f7fa",
-      "accent": "#0891b2",
-      "notes": "9' CLG., tub/shower"
-    },
-    {
-      "id": "bath4",
-      "name": "Bath 4",
-      "x": 47.5,
-      "z": 28.7,
-      "w": 11.2,
-      "d": 7,
-      "h": 9,
-      "color": "#e0f7fa",
-      "accent": "#0891b2",
-      "notes": "9' CLG., 36\" fiberglass tub/shower"
+      "notes": "9' CLG., 3050 SH egress"
     },
     {
       "id": "closet_a",
@@ -259,210 +312,89 @@
       "notes": "9' CLG., shelf & rod"
     },
     {
+      "id": "bath3",
+      "name": "Bath 3",
+      "x": 22,
+      "z": 0,
+      "w": 8,
+      "d": 9,
+      "h": 9,
+      "color": "#e0f7fa",
+      "accent": "#0891b2",
+      "notes": "9' CLG., 22×60 fiberglass tub/shower"
+    },
+    {
       "id": "game_room",
       "name": "Game Room",
-      "x": 43,
+      "x": 44,
       "z": 0,
       "w": 16.4,
       "d": 17.5,
       "h": 18,
       "color": "#c5d6c0",
       "accent": "#33691e",
-      "notes": "VAULTED CLG., 19'-4\" x 17'-6\""
+      "notes": "VAULTED CLG, 19'-4\" x 17'-6\""
+    },
+    {
+      "id": "bath4",
+      "name": "Bath 4",
+      "x": 44,
+      "z": 17.5,
+      "w": 16.4,
+      "d": 11,
+      "h": 9,
+      "color": "#e0f7fa",
+      "accent": "#0891b2",
+      "notes": "9' CLG., 36\" fiberglass tub/shower"
+    },
+    {
+      "id": "br5",
+      "name": "Bedroom 5",
+      "x": 60.4,
+      "z": 0,
+      "w": 20.1,
+      "d": 11.2,
+      "h": 9,
+      "color": "#f3e8f3",
+      "accent": "#ad1457",
+      "notes": "9' CLG."
     },
     {
       "id": "unfin_mech",
       "name": "Unfin. Mechanical",
-      "x": 30,
-      "z": 15,
-      "w": 13,
-      "d": 5.5,
+      "x": 60.4,
+      "z": 11.2,
+      "w": 20.1,
+      "d": 6.8,
       "h": 8,
       "color": "#d7d7d7",
       "accent": "#5d4037",
-      "notes": "8' CLG., furnace + water heater + attic access"
+      "notes": "8' CLG., furnace + water heater, 2x6 attic access"
     },
     {
-      "id": "stair_f1f2",
-      "name": "Stair (1F → 2F)",
-      "x": 50.6,
-      "z": 18.2,
-      "w": 7,
-      "d": 18.2,
+      "id": "linen",
+      "name": "Linen Closet",
+      "x": 13,
+      "z": 15,
+      "w": 9,
+      "d": 2,
       "h": 9,
-      "kind": "stairs",
-      "toElevation": 10,
-      "riserFt": 0.625,
-      "treadFt": 0.917,
-      "direction": "z+",
-      "color": "#fff0d0",
-      "accent": "#5d4037",
-      "notes": "Straight-run stair, 7' wide, 18'-2\" long; 16 steps × 7.5\" rise × 11\" tread"
-    }
-  ],
-  "doors": [
-    {
-      "x": 6,
-      "z": 13.4,
-      "w": 3,
-      "axis": "z",
-      "kind": "exterior",
-      "label": "Entry (from porte-cochère)"
-    },
-    {
-      "x": 35.2,
-      "z": 9,
-      "w": 3,
-      "axis": "x",
-      "kind": "interior",
-      "label": "Master Bath"
-    },
-    {
-      "x": 24,
-      "z": 12.4,
-      "w": 3,
-      "axis": "x",
-      "kind": "interior",
-      "label": "Master Bath ↔ WIC"
-    },
-    {
-      "x": 50.6,
-      "z": 9,
-      "w": 3,
-      "axis": "x",
-      "kind": "interior",
-      "label": "BR 2 ↔ Hall"
-    },
-    {
-      "x": 9.5,
-      "z": 0,
-      "w": 3,
-      "axis": "x",
-      "kind": "interior",
-      "label": "Master BR"
-    },
-    {
-      "x": 16,
-      "z": 14,
-      "w": 3,
-      "axis": "z",
-      "kind": "interior",
-      "label": "Kitchen ↔ Family"
-    },
-    {
-      "x": 32.4,
-      "z": 42,
-      "w": 3,
-      "axis": "x",
-      "kind": "interior",
-      "label": "Breakfast ↔ Kitchen"
-    },
-    {
-      "x": 0,
-      "z": 42,
-      "w": 3,
-      "axis": "z",
-      "kind": "exterior",
-      "label": "Family Room"
-    },
-    {
-      "x": 0,
-      "z": 50,
-      "w": 3,
-      "axis": "z",
-      "kind": "exterior",
-      "label": "Family Room 2nd"
-    },
-    {
-      "x": 12,
-      "z": 13.4,
-      "w": 3,
-      "axis": "z",
-      "kind": "interior",
-      "label": "Porte-cochère gate"
-    },
-    {
-      "x": 45.6,
-      "z": 52.2,
-      "w": 3,
-      "axis": "x",
-      "kind": "exterior",
-      "label": "Courtyard"
-    }
-  ],
-  "windows": [
-    {
-      "x": 6,
-      "z": 0,
-      "w": 4,
-      "label": "Study window"
-    },
-    {
-      "x": 50.6,
-      "z": 0,
-      "w": 4,
-      "label": "Master BR window"
-    },
-    {
-      "x": 35.2,
-      "z": 18.2,
-      "w": 4,
-      "label": "Master BR bay"
-    },
-    {
-      "x": 24,
-      "z": 12.4,
-      "w": 3,
-      "label": "M. Bath window"
-    },
-    {
-      "x": 50.6,
-      "z": 12.6,
-      "w": 4,
-      "label": "BR 2 window"
-    },
-    {
-      "x": 63.6,
-      "z": 4.6,
-      "w": 3,
-      "label": "Laundry window"
-    },
-    {
-      "x": 9.5,
-      "z": 36.4,
-      "w": 4,
-      "label": "Family Room big window"
-    },
-    {
-      "x": 9.5,
-      "z": 56,
-      "w": 6,
-      "label": "Family Room bay"
-    },
-    {
-      "x": 32.4,
-      "z": 36.4,
-      "w": 4,
-      "label": "Breakfast bay"
-    },
-    {
-      "x": 45.6,
-      "z": 36.4,
-      "w": 6,
-      "label": "Dining big window"
-    },
-    {
-      "x": 58.6,
-      "z": 36.4,
-      "w": 5,
-      "label": "Foyer"
+      "color": "#f5e8d4",
+      "accent": "#a0522d",
+      "notes": "linen closet in 2nd floor hall"
     }
   ],
   "footprint": {
-    "w": 70.4,
-    "d": 62.6,
+    "w": 80.5,
+    "d": 62.0,
     "wallH": 10,
-    "notes": "First-floor footprint including porte-cochère + courtyard; interior conditioned space totals 2,710 sq ft per DCA plan area calc."
+    "notes": "Outer rectangle (north→south, west→east) based on architect's page-1 dimensions."
+  },
+  "wallOverrides": {
+    "s": 11,
+    "n": 12,
+    "w": 12,
+    "e": 11
   },
   "roofOpenRooms": [
     "dining",
@@ -471,45 +403,45 @@
   "floors": [
     {
       "name": "1st Floor",
+      "elevation": 0,
       "rooms": [
-        "study",
-        "wic",
+        "cov_porch",
+        "laundry",
+        "breakfast",
         "master_bath",
         "master_br",
-        "br2",
-        "laundry",
+        "wic",
+        "study",
         "porte_cochere",
         "family_rm",
-        "breakfast",
         "kitchen",
+        "closet_kit",
         "pantry",
         "dining",
         "foyer",
+        "br2",
+        "bath2",
+        "closet_br2",
         "courtyard",
-        "stair_f1f2"
-      ],
-      "elevation": 0
+        "stair_f1f2",
+        "entry_porch"
+      ]
     },
     {
       "name": "2nd Floor",
+      "elevation": 10,
       "rooms": [
         "br3",
         "br4",
-        "br5",
-        "bath3",
-        "bath4",
         "closet_a",
         "closet_b",
+        "bath3",
         "game_room",
-        "unfin_mech"
-      ],
-      "elevation": 10
+        "bath4",
+        "br5",
+        "unfin_mech",
+        "linen"
+      ]
     }
-  ],
-  "wallOverrides": {
-    "s": 11,
-    "n": 11,
-    "w": 11,
-    "e": 10
-  }
+  ]
 }
