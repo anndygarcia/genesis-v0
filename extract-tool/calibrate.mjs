@@ -135,7 +135,8 @@ function matchDimensionLine(candidates, run) {
 }
 
 function parseDimToInches(s) {
-  const m = s.match(/^(\d+)'(?:[\s-]*(\d+)(?:\s+(\d+)\/(\d+))?)?(?:")?$/);
+  // Lenient: matches "12'-4\"", "12-4\"", "12 4\"", "12\"", "12-0\"".
+  const m = s.match(/^\s*(\d+)\s*['\u2019]?\s*-?\s*(\d+)?(?:\s+(\d+)\s*\/\s*(\d+))?\s*["\u201d]?\s*$/);
   if (!m) return null;
   const feet = +m[1];
   const inches = m[2] ? +m[2] : 0;

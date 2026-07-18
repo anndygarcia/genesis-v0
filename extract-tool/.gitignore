@@ -4,3 +4,6 @@ test_*.mjs
 test_*.cjs
 *.bak
 .DS_Store
+langs/
+*.traineddata
+*.traineddata.gz

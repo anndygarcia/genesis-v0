@@ -67,6 +67,9 @@ export async function extractPlanFromPdf(pdfPath, { pageIndex = 0 } = {}) {
   };
 }
 
+// Also export helpers so the browser-side entrypoint can reuse them.
+export { extractAllLines, findEnvelope, findRectangularRooms, attachLabels, attachHeights };
+
 function extractAllLines(ops, OPS) {
   const lines = [];
   for (let i = 0; i < ops.fnArray.length; i++) {

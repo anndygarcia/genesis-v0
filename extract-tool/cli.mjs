@@ -61,9 +61,36 @@ async function main() {
   console.log(`[extract] detected kind: ${kind}`);
 
   if (kind === 'raster') {
-    console.error('[extract] RASTER PDFs not yet supported in v0.1.');
-    console.error('         OCR + YOLOv8 detection pipeline coming in v0.2.');
-    process.exit(2);
+    console.log('[extract] RASTER PDF detected — running OCR + edge detection.');
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const { createCanvas } = require('canvas');
+    const pdfjsRaster = require('pdfjs-dist/legacy/build/pdf.js');
+    const data2 = new Uint8Array(await fs.readFile(pdfPath));
+    const pdf2 = await pdfjsRaster.getDocument({ data: data2 }).promise;
+    const page = await pdf2.getPage(pageIndex + 1);
+    const scale = 2;
+    const rv = page.getViewport({ scale });
+    const canvas = createCanvas(rv.width, rv.height);
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: rv }).promise;
+    const { extractPlanFromRasterCanvas } = await import('./raster.mjs');
+    const t0 = Date.now();
+    const result = await extractPlanFromRasterCanvas(canvas, { fileName: pdfPath });
+    const dt = Date.now() - t0;
+    console.log(`[extract] done in ${dt}ms`);
+    console.log(`[extract] calibration: ${result.plan.calibration.pixelsPerFoot.toFixed(2)} pt/ft (conf=${result.plan.calibration.confidence.toFixed(2)})`);
+    console.log(`[extract] OCR: ${result.plan.ocr.wordCount} words, avg conf ${result.plan.ocr.avgConfidence.toFixed(1)}`);
+    console.log(`[extract] detected ${result.plan.rooms.length} rooms`);
+
+    const json = JSON.stringify(result.plan, null, 2);
+    if (outPath) {
+      await fs.writeFile(outPath, json);
+      console.log(`[extract] wrote ${outPath} (${json.length} bytes)`);
+    } else {
+      console.log(json);
+    }
+    return;
   }
 
   console.log(`[extract] running vector pipeline on page ${pageIndex + 1}...`);

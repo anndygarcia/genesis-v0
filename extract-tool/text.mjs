@@ -49,11 +49,15 @@ async function loadPdfData(pdfPath) {
 
 // Detect dimension strings like 12'-4" or 30'-0" or 9'-8 1/2".
 // Returns parsed inches (as a number) and the original string.
-const DIM_RE = /(\d+)(?:'|ft)\s*[-]?\s*(\d+)?(?:\s*(\d+)\s*\/\s*(\d+))?(?:"|in)?/g;
+const DIM_RE = /(\d+)\s*(?:['\u2019]\s*[-]?\s*)?(\d+)?\s*(?:["\u201d])/g;
 export function findDimensionStrings(runs) {
   const found = [];
   for (const r of runs) {
-    const matches = r.str.matchAll(/(\d+(?:'|ft)?-?\d*(?:\s*\d+\/\d+)?(?:\d*)?")/g);
+    // Try each "N'-M\""-ish substring. The feet+inches shape requires
+    // either an apostrophe or hyphen between the two numbers, OR a
+    // bare "N" alone is rejected (room sizes look like "12\"" but real
+    // architect dims look like "12'-0\"" or "12-0\"").
+    const matches = r.str.matchAll(/(\d+\s*['\u2019]\s*-?\s*\d+(?:\s*\d+\/\d+)?\s*["\u201d]?|\d+\s*[-]\s*\d+\s*["\u201d]?)/g);
     for (const m of matches) {
       const dim = parseDim(m[0]);
       if (dim != null) found.push({ str: m[0], inches: dim, x: r.x, y: r.y });
@@ -63,8 +67,10 @@ export function findDimensionStrings(runs) {
 }
 
 function parseDim(s) {
-  // Match patterns: 12'-4", 30', 9'-8 1/2", 5'-0", 6'-8"
-  const m = s.match(/^(\d+)'(?:[\s-]*(\d+)(?:\s+(\d+)\/(\d+))?)?(?:")?$/);
+  // Match patterns (lenient — handles imperfect OCR):
+  //   "12'-4\""  "12-4""  "12 4""  "12.0""  "6-0""
+  // The general shape is: N feet (possibly with missing apostrophe) + optional inches + quote
+  const m = s.match(/^\s*(\d+)\s*['\u2019]?\s*-?\s*(\d+)?(?:\s+(\d+)\s*\/\s*(\d+))?\s*["\u201d]?\s*$/);
   if (!m) return null;
   const feet = +m[1];
   const inches = m[2] ? +m[2] : 0;
