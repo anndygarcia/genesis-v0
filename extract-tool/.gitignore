@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+test_*.mjs
+test_*.cjs
+*.bak
+.DS_Store
