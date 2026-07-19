@@ -11,7 +11,9 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-const MODEL_URL_DEFAULT = './models/walls.onnx';
+// Default URL: GitHub Release. The 98 MB model exceeds CF Pages' 25 MB
+// static-asset cap, so we host on GitHub Releases instead.
+const MODEL_URL_DEFAULT = 'https://github.com/anndygarcia/genesis-v0/releases/download/v0.3-walls/walls.onnx';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
