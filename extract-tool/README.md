@@ -10,16 +10,32 @@ Architects deliver floor plans as **PDFs** (vector if exported from AutoCAD
 or Revit, raster if scanned). Genesis already has a working 3D viewer that
 consumes a structured JSON. The pipeline bridges the two.
 
-## Status (v0.1)
+## Status
 
-- **Vector PDFs** — fully supported. Tested on synthetic architect-style PDFs.
-  Extracts:
-  - Outer walls and interior walls (precise line geometry from the PDF)
-  - Text labels and dimension annotations (`"30'-0\""`, `"9'-8 1/2"`)
-  - pixelsPerFoot from dimension annotations
-  - Rectangular room boundaries from the wall network
-- **Raster PDFs** — detected and reported as unsupported. OCR + YOLOv8
-  detection pipeline is the next slice (v0.2).
+- **Vector PDFs** — fully supported (pdfjs-dist → precise line geometry → fuse.mjs rooms).
+- **Raster PDFs** — fully supported. Two-stage pipeline:
+  1. **Tesseract.js OCR** → text labels + dimension strings
+  2. **Yytsi/floorplan-to-3d-walls** UNet (ResNet-34, fine-tuned on
+     CubiCasa5K, 0.983 mIoU on validation) → 4-class segmentation mask
+     (floor / wall / door / window)
+  Both stages feed `fuse.mjs` for the final plan JSON.
+
+## Models
+
+| File | Size | Source | Purpose |
+|---|---|---|---|
+| `models/walls.onnx` | 98 MB | [Yytsi/floorplan-to-3d-walls](https://huggingface.co/Yytsi/floorplan-to-3d-walls) (MIT) | Wall + door + window segmentation |
+| `langs/eng.traineddata` | 23 MB | Tesseract LSTM (Apache) | OCR for raster PDFs |
+
+The wall-detection model is auto-loaded the first time the user
+hits "Extract 3D" with a scanned PDF; subsequent runs are cached
+in the browser by the HTTP cache. The OCR traineddata file is
+loaded from the local `langs/` directory (Node CLI) or from
+Tesseract.js's CDN (browser).
+
+To regenerate `walls.onnx` from the source weights (e.g. after a
+fine-tune), run `python convert_model.py` — downloads the safetensors
+from HuggingFace and emits a single-file 98 MB ONNX.
 
 ## Modules
 

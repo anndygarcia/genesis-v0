@@ -109,10 +109,27 @@ export async function extractTextRunsFromPage(pdfjsLib, page) {
   return { runs, pageWidth: vp.width, pageHeight: vp.height };
 }
 
-// Calibration, fuse, etc. — these don't depend on pdfjsLib so we can
-// import from extract-tool/ via the same module path the Node CLI uses,
-// but to keep this self-contained for browser delivery, we duplicate
-// the small bits we need and import the rest.
+// Detect whether a PDF page is vector (has constructPath ops + text)
+// or raster (scanned image). Public — used by app.js's openExtract().
+export async function detectPdfKind(page, pdfjsLib) {
+  const ops = await page.getOperatorList();
+  const text = await page.getTextContent();
+  let hasConstructPath = false;
+  for (const fn of ops.fnArray) {
+    if (fn === pdfjsLib.OPS.constructPath) { hasConstructPath = true; break; }
+  }
+  if (text.items.length > 5 && hasConstructPath) return 'vector';
+  if (text.items.length > 5) return 'text-raster';
+  return 'raster';
+}
+
+// Raster path orchestrator — render is done by the caller (since
+// pdf.js canvas creation differs between Node and the browser).
+// Reuses the Node CLI's `extractPlanFromRasterCanvas` shape.
+export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } = {}) {
+  const rasterMod = await import('./raster.mjs');
+  return await rasterMod.extractPlanFromRasterCanvas(canvas, { fileName });
+}
 
 import {
   calibrate as calibrateShared,

@@ -21,6 +21,106 @@ import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 // `state.stats` the derived counters. Everything below reads from these.
 import { state, loadPlan, getRoom, getWall, getOpening, describe } from './state.js';
 import { createTracer } from './tracer.js';
+// Load the extract-tool browser module lazily — only when the user
+// actually clicks the Extract 3D button. Avoids slowing down the
+// initial page load.
+async function loadExtractModule() {
+  return await import('./extract-tool/extract-browser.mjs');
+}
+
+// Open the Extract 3D pipeline: take a PDF (vector OR raster), produce
+// a plan JSON, and load it into the 3D viewer. The browser side of
+// the pipeline runs entirely client-side — no server roundtrip.
+//
+// Pipeline:
+//   1. PDF.js loads the file
+//   2. detectPdfKind() decides vector vs raster
+//   3a. Vector path: walk constructPath ops + text runs + calibrate
+//   3b. Raster path: render page to canvas + tesseract.js OCR + edge
+//       detection (or YOLO when available) + calibrate
+//   4. fuse.mjs groups walls into rooms, attaches labels
+//   5. window.GENESIS.loadPlan(plan) rebuilds the 3D scene
+async function openExtract() {
+  // Pick a file via a hidden <input> rather than relying on the existing
+  // pdf-input (which only does 2D overlay).
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,application/pdf';
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    await runExtract(file);
+  }, { once: true });
+  input.click();
+}
+
+async function runExtract(file) {
+  const overlay = document.getElementById('drop-overlay');
+  const dropText = document.getElementById('drop-text');
+  overlay?.classList.remove('hidden');
+  if (dropText) dropText.textContent = `Extracting 3D from ${file.name}…`;
+  const t0 = performance.now();
+  try {
+    // Load pipeline modules lazily (only when the user actually uses it).
+    const [
+      browserModule,
+      pdfjsModule,
+    ] = await Promise.all([
+      loadExtractModule(),
+      import('https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.mjs'),
+    ]);
+    const pdfjsLib = pdfjsModule;
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.mjs';
+
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const kind = await browserModule.detectPdfKind(page, pdfjsLib);
+    if (dropText) dropText.textContent = `Extracting 3D — ${kind} PDF detected…`;
+
+    let result;
+    if (kind === 'vector') {
+      result = await browserModule.extractPlanFromPdfPage(pdfjsLib, page, { fileName: file.name });
+    } else {
+      // Render page to canvas at 2×, then run OCR + detect
+      const targetWidthPx = Math.min(2200, window.devicePixelRatio > 1 ? 1800 : 1500);
+      const viewport = page.getViewport({ scale: 1 });
+      const scale = targetWidthPx / viewport.width;
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      result = await browserModule.extractPlanFromRasterCanvas(canvas, { fileName: file.name });
+    }
+
+    const plan = result.plan;
+    const dt = performance.now() - t0;
+    if (dropText) dropText.textContent =
+      `✓ ${plan.rooms.length} rooms extracted in ${(dt / 1000).toFixed(1)}s (${kind})`;
+
+    // Hand off to the existing 3D viewer
+    try {
+      window.GENESIS.loadPlan(plan);
+    } catch (e) {
+      console.error('loadPlan failed', e);
+      if (dropText) dropText.textContent = `Load failed: ${e.message}`;
+      setTimeout(() => overlay?.classList.add('hidden'), 1800);
+      return;
+    }
+    document.getElementById('demo-title').textContent =
+      `${plan.name || file.name} · Plan #${plan.planNumber || 1} (auto-extracted)`;
+    const clearBtn = document.getElementById('btn-clear-plan');
+    if (clearBtn) clearBtn.classList.remove('hidden');
+    setTimeout(() => overlay?.classList.add('hidden'), 900);
+  } catch (err) {
+    console.error('Extract failed', err);
+    if (dropText) dropText.textContent = `Extract failed: ${err.message}`;
+    setTimeout(() => overlay?.classList.add('hidden'), 2200);
+  }
+}
 
 // Genesis v0.5 — PBR materials, HDR env, shadows + SSAO, procedural trim,
 // measurement tool, estimator, GLB export.
@@ -1985,6 +2085,9 @@ function rebuildSceneFromPlan(plan) {
 
 document.getElementById('btn-upload').addEventListener('click', () => {
   document.getElementById('pdf-input').click();
+});
+document.getElementById('btn-extract')?.addEventListener('click', () => {
+  openExtract();
 });
 document.getElementById('pdf-input').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];

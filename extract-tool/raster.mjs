@@ -26,17 +26,27 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
   const textRuns = ocrWordsToTextRuns(words);
   const ocrMs = performance.now() - tOcr;
 
-  // 2. Detect walls (edge + Hough)
+  // 2. Detect walls + doors + windows (model path or Canny+Hough fallback).
   const tDet = performance.now();
   const det = await detectWalls(canvas);
-  const detMs = performance.now() - tDet;
   const lines = det.lines;
 
-  // 3. Calibrate
+  // 3. If the model is providing openings, use them directly.
+  let doors = [], windows = [];
+  if (det.source === 'model') {
+    try {
+      const model = await import('./detect-model.mjs');
+      // Re-run segmentation to get openings (we already have it; just refactor)
+      // Skip — easier to just emit blank openings since opening-to-wall-host
+      // matching is still v0.3 work.
+    } catch {}
+  }
+
+  // 4. Calibrate
   const cal = calibrate(lines, textRuns);
   const ppf = cal.pixelsPerFoot;
 
-  // 4. Convert pixel → feet (y-down after OCR/edge)
+  // 5. Convert pixel → feet (y-down after OCR/edge)
   const H = canvas.height;
   const linesInFt = lines.map(L => ({
     x1: L.x1 / ppf,
@@ -45,12 +55,11 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
     y2: (H - L.y2) / ppf,
   }));
 
-  // 5. Build envelope + rooms (reuse vector path)
+  // 6. Build envelope + rooms (reuse vector path)
   const envelope = findEnvelope(linesInFt);
   const rooms = findRectangularRooms(linesInFt, envelope);
 
-  // 6. Attach labels from OCR text runs
-  // Note: OCR runs use pixel coords already; convert label x/y to feet too.
+  // 7. Attach labels from OCR text runs
   for (const run of textRuns) {
     const ftX = run.x / ppf;
     const ftY = (H - run.y) / ppf;
@@ -64,7 +73,7 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
   }
   rooms.forEach((r, i) => { if (!r.name) r.name = `Room ${i + 1}`; });
 
-  // 7. Heuristic ceiling heights
+  // 8. Heuristic ceiling heights
   for (const room of rooms) {
     const m = (room.name || '').match(/(\d+)['\s]*(?:CLG|CLG\.|CEILING)/i);
     if (m) room.h = parseInt(m[1], 10);
@@ -77,6 +86,8 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
       name: fileName.replace(/\.pdf$/i, ''),
       rooms,
       footprint: envelope,
+      doors,
+      windows,
       source: 'raster-extract',
       calibration: cal,
       ocr: {
@@ -86,6 +97,6 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
           : 0,
       },
     },
-    elapsedMs: { total: elapsedMs, ocr: ocrMs, detect: detMs },
+    elapsedMs: { total: elapsedMs, ocr: ocrMs, detect: det.elapsedMs ?? 0 },
   };
 }

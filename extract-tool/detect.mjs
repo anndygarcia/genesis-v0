@@ -14,10 +14,25 @@
 //
 // Output: array of {x1,y1,x2,y2} line segments in canvas pixel coords.
 
-export async function detectWalls(canvas, { opts = {}, maxDim = 1024 } = {}) {
-  // Edge detection is O(W*H) per pass — downscale first for speed.
-  // Detection quality doesn't suffer much because walls are sharp
-  // edges that survive downscaling.
+export async function detectWalls(canvas, { opts = {}, maxDim = 1024, useModel = true } = {}) {
+  // Try the model first when enabled. Fall back to Canny+Hough if any
+  // part of the model pipeline fails (model file missing, ONNX load
+  // error, etc.) — keeps the browser experience graceful.
+  if (useModel) {
+    try {
+      const model = await import('./detect-model.mjs');
+      const { mask, meta } = await model.segmentWithModel(canvas);
+      const lines = model.maskToWallPolylines(mask, meta, {
+        canvasW: canvas.width, canvasH: canvas.height,
+      });
+      return { lines, width: canvas.width, height: canvas.height, source: 'model' };
+    } catch (err) {
+      console.warn('detect: model path failed, falling back to Canny+Hough:', err.message);
+    }
+  }
+
+  // Edge detection fallback (no external dep).
+  const ctx = canvas.getContext('2d');
   let work = canvas;
   let scaleX = 1, scaleY = 1;
   if (canvas.width > maxDim || canvas.height > maxDim) {
@@ -28,15 +43,14 @@ export async function detectWalls(canvas, { opts = {}, maxDim = 1024 } = {}) {
     scaleY = canvas.height / h;
     work = await downscaleCanvas(canvas, w, h);
   }
-  const ctx = work.getContext('2d');
-  const imgData = ctx.getImageData(0, 0, work.width, work.height);
+  const ctx2 = work.getContext('2d');
+  const imgData = ctx2.getImageData(0, 0, work.width, work.height);
   const { lines, w, h } = runEdgePipeline(imgData, opts);
-  // Scale line coordinates back up to original canvas size
   const scaled = lines.map(L => ({
     x1: L.x1 * scaleX, y1: L.y1 * scaleY,
     x2: L.x2 * scaleX, y2: L.y2 * scaleY,
   }));
-  return { lines: scaled, width: canvas.width, height: canvas.height };
+  return { lines: scaled, width: canvas.width, height: canvas.height, source: 'canny' };
 }
 
 // Downscale a canvas to a smaller size. Works for HTMLCanvasElement,
