@@ -32,6 +32,32 @@ async function loadExtractModule() {
 // user can verify the extract pipeline without finding a file. The PDF
 // decodes to a 6-room plan; the Yytsi model detects ~3 rooms + 2 doors
 // + 1 window correctly.
+// Try-garcia-plan — runs the extract pipeline on the Garcia
+// Residence.pdf served from /api/garcia-pdf (CF Pages Function
+// proxying the GH raw URL). Useful for live model validation
+// against a real 2-story American architectural plan.
+async function runGarciaDemo() {
+  console.log('[demo] runGarciaDemo: starting');
+  const dropText = document.getElementById('drop-text');
+  if (dropText) dropText.textContent = 'Loading Garcia Residence.pdf…';
+  let buf;
+  try {
+    const res = await fetch('/api/garcia-pdf');
+    if (!res.ok) throw new Error(`Garcia PDF HTTP ${res.status}`);
+    buf = await res.arrayBuffer();
+    console.log('[demo] Garcia bytes:', buf.byteLength);
+  } catch (e) {
+    console.error('[demo] Garcia fetch failed:', e.message);
+    if (dropText) dropText.textContent = `Garcia load failed: ${e.message}`;
+    return;
+  }
+  if (dropText) dropText.textContent =
+    `Garcia loaded (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB) — extracting…`;
+  const file = new File([buf], 'Garcia Residence.pdf', { type: 'application/pdf' });
+  await runExtract(file);
+}
+window.runGarciaDemo = runGarciaDemo;
+
 async function runExtractDemo() {
   console.log('[demo] runExtractDemo: starting');
   let fixture;
@@ -2123,6 +2149,9 @@ document.getElementById('btn-upload').addEventListener('click', () => {
 // finding a PDF. Wired via `id="btn-demo-extract"` in index.html.
 document.getElementById('btn-demo-extract')?.addEventListener('click', () => {
   runExtractDemo();
+});
+document.getElementById('btn-demo-garcia')?.addEventListener('click', () => {
+  runGarciaDemo();
 });
 document.getElementById('btn-extract')?.addEventListener('click', () => {
   openExtract();
