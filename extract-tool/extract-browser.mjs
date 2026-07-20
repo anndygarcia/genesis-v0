@@ -131,8 +131,12 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
   return await rasterMod.extractPlanFromRasterCanvas(canvas, { fileName });
 }
 
+// calibrate lives in its own module (see calibrate.mjs); fuse.mjs
+// re-exports it for the Node CLI but the browser bundle is happier
+// importing from the source file directly. We alias to `calibrateShared`
+// so the rest of this file doesn't need to change.
+import { calibrate as calibrateShared } from './calibrate.mjs';
 import {
-  calibrate as calibrateShared,
   findRectangularRooms as fuseRooms,
   findEnvelope as fuseEnvelope,
 } from './fuse.mjs';
