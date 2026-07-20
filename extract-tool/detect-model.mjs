@@ -11,13 +11,15 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: jsdelivr gh-mirror URL on the int8-quantized ONNX
-// at extract-tool/models/walls-inline.onnx. The int8 version
-// is 23.7 MB (vs 93.5 MB for fp32). jsdelivr's strict limit is
-// 20 MB but in practice builds slightly over 20 MB do serve — we
-// verified 24 MB serving OK. If it fails, we fall back to the
-// CF Pages Function proxy (/api/walls), which has its own
-// issue (70 MB response cap, see comment in functions/api/walls.js).
+// Default URL: jsdelivr's gh-mirror URL on the int8 quantized ONNX
+// at extract-tool/models/walls-inline.onnx (23.7 MB, just over the
+// published 20 MB limit — in practice jsdelivr syncs over-limit
+// paths with a per-file setup. If the upstream rejects this URL,
+// the in-browser segmentWithModel() will surface a clear error
+// and the page falls back to canny+hough detection with the
+// "model path failed" warning in the overlay.)
+//
+// For Node-side runs the model path is identical: fetch() and load.
 const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/walls-inline.onnx';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
