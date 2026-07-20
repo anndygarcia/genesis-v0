@@ -11,39 +11,84 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: jsdelivr's gh-mirror URL on the int8 quantized ONNX
-// at extract-tool/models/walls-inline.onnx (23.7 MB, just over the
-// published 20 MB limit — in practice jsdelivr syncs over-limit
-// paths with a per-file setup. If the upstream rejects this URL,
-// the in-browser segmentWithModel() will surface a clear error
-// and the page falls back to canny+hough detection with the
-// "model path failed" warning in the overlay.)
+// Default URL: jsdelivr's gh-mirror serving a list of chunk files
+// at extract-tool/models/chunks/walls-chunk{N}.bin. jsdelivr's hard
+// per-file cap is 20 MB but the int8 ONNX is 23.7 MB, so we split
+// it into 2 chunks of 11.77 MB each (well under the cap). The
+// browser fetches them in parallel, drops the 4-byte BE-uint32
+// header (which both halves carry for redundancy), concatenates
+// the bodies, and feeds the result to ORT.
 //
-// For Node-side runs the model path is identical: fetch() and load.
-const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/walls-inline.onnx';
+// For Node-side runs we download the chunks to /tmp and concatenate
+// on disk; the same header convention.
+const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/chunks';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
+const MODEL_CHUNKS = ['walls-chunk0.bin', 'walls-chunk1.bin'];
 
 // Resolve a model URL to bytes that ORT can load.
-// In the browser, ORT passes a `string` URL straight to fetch — which
-// fails when the model CDN doesn't return CORS headers. We download
-// the URL ourselves (so we can surface failures clearly), then hand
-// ORT a Uint8Array. In Node, ORT only loads from disk, so we cache the
-// download to a local file (idempotent — re-runs use the file).
+// Two modes:
+//   1. Single-file URL (no trailing slash, ends in .onnx) — download
+//      it directly and hand ORT a Uint8Array (browser) or a local
+//      cache path (Node).
+//   2. Chunked URL (path with no extension) — fan out the parallel
+//      chunk downloads from MODEL_CHUNKS, drop the 4-byte BE-uint32
+//      header (which both halves carry for redundancy), concatenate
+//      and emit the same single buffer.
+//
+// In the browser we always return a Uint8Array; in Node we cache
+// the unified file to disk so re-runs are fast.
 async function localModelPath(modelUrlOrPath) {
   // Already a local path (no scheme, starts with ./, etc.)
   if (!modelUrlOrPath.startsWith('http://') && !modelUrlOrPath.startsWith('https://')) {
     return modelUrlOrPath;
   }
-  // Browser: fetch the URL ourselves, then pass bytes to ORT.
+  const chunked = !modelUrlOrPath.endsWith('.onnx');
+  // Decide chunk source URLs
+  const chunkUrls = chunked
+    ? MODEL_CHUNKS.map(n => `${modelUrlOrPath.replace(/\/$/, '')}/${n}`)
+    : null;
+  const singleUrl = chunked ? null : modelUrlOrPath;
+
+  // Browser: fetch URL (chunked or single), then pass bytes to ORT.
   if (typeof document !== 'undefined') {
-    const res = await fetch(modelUrlOrPath, { redirect: 'follow' });
-    if (!res.ok) {
+    if (singleUrl) {
+      const res = await fetch(singleUrl, { redirect: 'follow' });
+      if (!res.ok) throw new Error(
+        `Failed to download model from ${singleUrl}: HTTP ${res.status}`
+      );
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    // chunked path: fetch all chunks in parallel
+    const parts = await Promise.all(chunkUrls.map(async url => {
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) throw new Error(
+        `Failed to download model chunk from ${url}: HTTP ${res.status}`
+      );
+      return new Uint8Array(await res.arrayBuffer());
+    }));
+    // Verify length headers agree
+    const headers = parts.map(p => new DataView(
+      p.buffer, p.byteOffset, p.byteLength).getUint32(0, false));
+    if (headers[0] !== headers[1]) {
       throw new Error(
-        `Failed to download model from ${modelUrlOrPath}: HTTP ${res.status}`
+        `Model chunk size headers disagree: ${headers[0]} vs ${headers[1]}`
       );
     }
-    return new Uint8Array(await res.arrayBuffer());
+    const total = headers[0];
+    const bodyTotal = parts.reduce((s, p) => s + (p.byteLength - 4), 0);
+    if (bodyTotal !== total) {
+      throw new Error(
+        `Model body bytes (${bodyTotal}) != declared total (${total})`
+      );
+    }
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      out.set(p.subarray(4), off);
+      off += p.byteLength - 4;
+    }
+    return out;
   }
   // Node: download to a cache file. Use createRequire so `require` is
   // available in pure ESM contexts.
@@ -59,17 +104,31 @@ async function localModelPath(modelUrlOrPath) {
     : '/tmp/genesis-extract-cache';
   await fs.mkdir(cacheDir, { recursive: true });
   const name = path.basename(new URL(modelUrlOrPath).pathname) || 'walls.onnx';
-  const cached = path.join(cacheDir, name);
+
+  // For chunked URLs we cache the unified output as 'walls.onnx'
+  const cached = path.join(cacheDir, 'walls.onnx');
   try {
     await fs.access(cached);
     return cached;
-  } catch {
+  } catch {}
+  if (!chunked) {
     const res = await fetch(modelUrlOrPath, { redirect: 'follow' });
     if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${modelUrlOrPath}`);
     const buf = Buffer.from(await res.arrayBuffer());
     await fs.writeFile(cached, buf);
     return cached;
   }
+  // Chunked: download all, concatenate, write unified file
+  const parts = await Promise.all(chunkUrls.map(async url => {
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+    return Buffer.from(await res.arrayBuffer());
+  }));
+  // Drop the 4-byte header from each
+  const bodies = parts.map(p => p.subarray(4));
+  const total = Buffer.concat(bodies);
+  await fs.writeFile(cached, total);
+  return cached;
 }
 
 // Preprocessing: letterbox-resize + ImageNet normalization.

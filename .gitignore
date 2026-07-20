@@ -1,3 +1,12 @@
-# Top-level model assets for the extract-tool. Don't push 93 MB ONNXs
-# to git — they're hosted via the GH release + CF Pages Function proxy.
-/extract-tool/models/
+# Top-level model assets for the extract-tool. We DO want to ship
+# chunked model binaries (extracted by _chunk_model.py from the
+# ~24 MB int8 ONNX) on jsdelivr gh-mirror, since each chunk is
+# under the 20 MB cap. The single .onnx remains ignored.
+#
+#   extract-tool/models/best.safetensors           93 MB, ignore
+#   extract-tool/models/config.yaml                keep
+#   extract-tool/models/walls-inline.onnx          24 MB, ignore
+#   extract-tool/models/chunks/walls-chunkN.bin    12 MB, KEEP
+
+!/extract-tool/models/
+!/extract-tool/models/chunks/

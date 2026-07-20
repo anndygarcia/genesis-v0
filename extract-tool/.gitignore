@@ -8,5 +8,10 @@ langs/
 *.traineddata
 *.traineddata.gz
 best.safetensors
-/models/
+# Single-file models hosted externally:
+/models/*.onnx
+# Re-deny individual ONNX files anywhere
 *.onnx
+# Allow .bin chunks in models/chunks/ — these are the split pieces of
+# the int8 ONNX, each <12 MB so they fit jsdelivr gh-mirror's 20 MB cap
+!/models/chunks/*.bin
