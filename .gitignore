@@ -1,1 +1,3 @@
-models/
+# Top-level model assets for the extract-tool. Don't push 93 MB ONNXs
+# to git — they're hosted via the GH release + CF Pages Function proxy.
+/extract-tool/models/
