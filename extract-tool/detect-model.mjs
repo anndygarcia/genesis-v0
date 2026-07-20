@@ -11,23 +11,36 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: GitHub Release. The 98 MB model exceeds CF Pages' 25 MB
-// static-asset cap, so we host on GitHub Releases instead.
-const MODEL_URL_DEFAULT = 'https://github.com/anndygarcia/genesis-v0/releases/download/v0.3-walls/walls.onnx';
+// Default URL: jsdelivr gh-mirror. Served with `access-control-allow-origin: *`
+// so any browser origin can fetch the model directly. Pin to @main so
+// we always pick up the latest committed version. Override via
+// `modelUrl` in the segmentWithModel() options if you need a frozen
+// release tag instead.
+const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/walls.onnx';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
-// Resolve a model URL to a local file path that ORT can load.
-// In the browser, ORT fetches the URL directly. In Node, ORT only
-// loads from disk, so when given a URL we download to a local cache
-// (idempotent — re-downloads only if the file is missing).
+// Resolve a model URL to bytes that ORT can load.
+// In the browser, ORT passes a `string` URL straight to fetch — which
+// fails when the model CDN doesn't return CORS headers. We download
+// the URL ourselves (so we can surface failures clearly), then hand
+// ORT a Uint8Array. In Node, ORT only loads from disk, so we cache the
+// download to a local file (idempotent — re-runs use the file).
 async function localModelPath(modelUrlOrPath) {
   // Already a local path (no scheme, starts with ./, etc.)
   if (!modelUrlOrPath.startsWith('http://') && !modelUrlOrPath.startsWith('https://')) {
     return modelUrlOrPath;
   }
-  // Browser: let ORT fetch directly
-  if (typeof document !== 'undefined') return modelUrlOrPath;
+  // Browser: fetch the URL ourselves, then pass bytes to ORT.
+  if (typeof document !== 'undefined') {
+    const res = await fetch(modelUrlOrPath, { redirect: 'follow' });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to download model from ${modelUrlOrPath}: HTTP ${res.status}`
+      );
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  }
   // Node: download to a cache file. Use createRequire so `require` is
   // available in pure ESM contexts.
   const isNode = typeof process !== 'undefined' && process.versions?.node;
