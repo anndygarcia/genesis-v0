@@ -11,13 +11,14 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: same-origin CF Pages Function that streams the model
-// from GitHub Releases and adds CORS headers. jsdelivr's gh-mirror
-// has a 20 MB per-file cap (models are ~97 MB), and CF Pages has a
-// 25 MB static-asset cap — neither hosts the model directly. The
+// Default URL: the CF Pages Function proxy at genesis-mind.com/api/walls.
+// CF Pages has a 25 MB static-asset cap and jsdelivr's gh-mirror has
+// a 20 MB per-file cap — neither hosts the 93 MB ONNX directly. The
 // Function fetch()es from GH Releases, streams the body through a
-// TransformStream, and returns it with `access-control-allow-origin: *`.
-const MODEL_URL_DEFAULT = '/api/walls';
+// TransformStream, and returns it with access-control-allow-origin: *.
+// We use the absolute URL (instead of a same-origin `/api/walls`) so
+// Node-based CLI invocations also work without a relative-URL shim.
+const MODEL_URL_DEFAULT = 'https://genesis-mind.com/api/walls';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
