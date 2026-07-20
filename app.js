@@ -33,9 +33,11 @@ async function loadExtractModule() {
 // decodes to a 6-room plan; the Yytsi model detects ~3 rooms + 2 doors
 // + 1 window correctly.
 async function runExtractDemo() {
+  console.log('[demo] runExtractDemo: starting');
   let fixture;
   try {
     fixture = await import('./extract-tool/test-fixtures/raster-sample.b64.js');
+    console.log('[demo] fixture loaded');
   } catch (e) {
     console.warn('[demo] raster-sample.b64.js missing — falling back to sample-plan.json', e);
     const r = await fetch('assets/sample-plan.json');
@@ -44,9 +46,12 @@ async function runExtractDemo() {
     return;
   }
   const bytes = fixture.rasterSamplePdfBytes();
+  console.log('[demo] bytes:', bytes.length);
   // Wrap in a File and dispatch through the existing pipeline.
   const file = new File([bytes], 'sample-house.pdf', { type: 'application/pdf' });
+  console.log('[demo] calling runExtract()');
   await runExtract(file);
+  console.log('[demo] complete');
 }
 
 // Open the Extract 3D pipeline: take a PDF (vector OR raster), produce
