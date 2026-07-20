@@ -25,7 +25,28 @@ import { createTracer } from './tracer.js';
 // actually clicks the Extract 3D button. Avoids slowing down the
 // initial page load.
 async function loadExtractModule() {
-  return await import('./extract-tool/extract-browser.mjs');
+  return import('./extract-tool/extract-browser.mjs');
+}
+
+// Try-sample-plan button. Bundles a small raster PDF as base64 so the
+// user can verify the extract pipeline without finding a file. The PDF
+// decodes to a 6-room plan; the Yytsi model detects ~3 rooms + 2 doors
+// + 1 window correctly.
+async function runExtractDemo() {
+  let fixture;
+  try {
+    fixture = await import('./extract-tool/test-fixtures/raster-sample.b64.js');
+  } catch (e) {
+    console.warn('[demo] raster-sample.b64.js missing — falling back to sample-plan.json', e);
+    const r = await fetch('assets/sample-plan.json');
+    const plan = await r.json();
+    window.GENESIS.loadPlan(plan);
+    return;
+  }
+  const bytes = fixture.rasterSamplePdfBytes();
+  // Wrap in a File and dispatch through the existing pipeline.
+  const file = new File([bytes], 'sample-house.pdf', { type: 'application/pdf' });
+  await runExtract(file);
 }
 
 // Open the Extract 3D pipeline: take a PDF (vector OR raster), produce
@@ -2085,6 +2106,12 @@ function rebuildSceneFromPlan(plan) {
 
 document.getElementById('btn-upload').addEventListener('click', () => {
   document.getElementById('pdf-input').click();
+});
+// Try-sample-plan button — auto-runs the raster extract pipeline on a
+// tiny bundled fixture so the user can verify v0.4 works without
+// finding a PDF. Wired via `id="btn-demo-extract"` in index.html.
+document.getElementById('btn-demo-extract')?.addEventListener('click', () => {
+  runExtractDemo();
 });
 document.getElementById('btn-extract')?.addEventListener('click', () => {
   openExtract();
