@@ -53,6 +53,8 @@ async function runExtractDemo() {
   await runExtract(file);
   console.log('[demo] complete');
 }
+// Expose for console/devtools access and integration testing.
+window.runExtractDemo = runExtractDemo;
 
 // Open the Extract 3D pipeline: take a PDF (vector OR raster), produce
 // a plan JSON, and load it into the 3D viewer. The browser side of
