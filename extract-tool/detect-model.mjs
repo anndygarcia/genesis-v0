@@ -11,12 +11,13 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: jsdelivr gh-mirror. Served with `access-control-allow-origin: *`
-// so any browser origin can fetch the model directly. Pin to @main so
-// we always pick up the latest committed version. Override via
-// `modelUrl` in the segmentWithModel() options if you need a frozen
-// release tag instead.
-const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/walls.onnx';
+// Default URL: same-origin CF Pages Function that streams the model
+// from GitHub Releases and adds CORS headers. jsdelivr's gh-mirror
+// has a 20 MB per-file cap (models are ~97 MB), and CF Pages has a
+// 25 MB static-asset cap — neither hosts the model directly. The
+// Function fetch()es from GH Releases, streams the body through a
+// TransformStream, and returns it with `access-control-allow-origin: *`.
+const MODEL_URL_DEFAULT = '/api/walls';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
