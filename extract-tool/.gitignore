@@ -8,3 +8,5 @@ langs/
 *.traineddata
 *.traineddata.gz
 best.safetensors
+models/
+*.onnx
