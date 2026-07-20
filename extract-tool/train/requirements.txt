@@ -1,0 +1,29 @@
+# Pinned for the Genesis train/eval stack. Tested against the Colab
+# Python 3.11 runtime. Locally on macOS the same set installs cleanly
+# on Python 3.11.
+
+numpy>=1.26,<3.0
+pillow>=10.0
+pyyaml>=6.0
+tqdm>=4.66
+cairosvg>=2.7
+safetensors>=0.4
+opencv-python>=4.10
+huggingface_hub>=0.24
+
+# Training stack — same as Yytsi's [train] extra.
+torch>=2.2,<3.0
+torchvision>=0.17,<0.20
+segmentation_models_pytorch>=0.3.3
+albumentations>=1.4
+
+# Colab-only — for rendering the first page of an input PDF (Garcia mode).
+# Poppler binaries come from `apt-get install -y poppler-utils`; this is
+# only the python binding.
+pdf2image>=1.17
+
+# ONNX export — also needed for downstream `extract-tool/`'s `convert_model.py`.
+onnx>=1.17
+
+# Optional — falls back if poppler is missing on macOS.
+PyMuPDF>=1.24

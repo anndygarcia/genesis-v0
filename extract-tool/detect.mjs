@@ -25,7 +25,17 @@ export async function detectWalls(canvas, { opts = {}, maxDim = 1024, useModel =
       const lines = model.maskToWallPolylines(mask, meta, {
         canvasW: canvas.width, canvasH: canvas.height,
       });
-      return { lines, width: canvas.width, height: canvas.height, source: 'model' };
+      // Also extract doors + windows from the same 4-class mask.
+      // Callers (e.g. raster.mjs) use this to populate plan.openings.
+      const openings = model.extractOpenings(mask, meta);
+      return {
+        lines,
+        width: canvas.width, height: canvas.height,
+        source: 'model',
+        mask, meta,
+        openings,
+        modelMs: 0,  // measured below
+      };
     } catch (err) {
       console.warn('detect: model path failed, falling back to Canny+Hough:', err.message);
     }

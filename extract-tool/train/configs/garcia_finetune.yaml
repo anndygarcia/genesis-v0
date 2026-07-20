@@ -1,0 +1,43 @@
+# Garcia fine-tune — warm-start from Yytsi's released weights, then
+# fine-tune for a few epochs on a small set of labeled Garcia-style
+# plans. Lower learning rate than the cold-start CubiCasa recipe so
+# the optimizer doesn't overwrite the well-trained backbone.
+#
+# Usage (Colab):
+#   python -m train.src.train --config train/configs/garcia_finetune.yaml
+#
+# Prereqs:
+#   1. The Yytsi weights are downloaded to weights/best.safetensors (the
+#      Colab notebook does this automatically).
+#   2. Garcia plans are in `data/garcia_plans/`, organised one directory
+#      per plan with `plan.pdf` (or `.svg`) plus `polygons.svg`. See the
+#      GarciaPairAdapter docstring for the full layout.
+
+data:
+  data_mode: garcia
+  data_dir: data/garcia_plans
+  image_size: [512, 512]
+  num_workers: 4
+  normalize: true
+  letterbox: true
+
+model:
+  encoder_name: resnet34
+  encoder_weights: imagenet   # ImageNet weights fill any Yytsi-tensor that's missing
+  warm_start_from: weights/best.safetensors
+
+optim:
+  # 10x lower than the CubiCasa cold-start lr so the optimizer doesn't
+  # destroy the pretrained backbone features.
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  batch_size: 8
+
+train:
+  epochs: 10
+  log_every: 20
+  device: auto
+  checkpoint_every: 1   # save every epoch so we can roll back
+
+output:
+  run_dir: runs/garcia

@@ -1,0 +1,34 @@
+# Mixed: CubiCasa5K (warm-up) + Garcia plans (target distribution).
+# When you have both: continue-training on CubiCasa at lr=1e-4 then
+# finish with Garcia at the same lr.
+#
+# Use this when Garcia is too small on its own for a fine-tune to
+# converge (you need at least ~50 examples).
+
+data:
+  data_mode: mixed
+  cubi_dir: data/cubicasa5k_svg
+  garcia_dir: data/garcia_plans
+  image_size: [512, 512]
+  num_workers: 4
+  normalize: true
+  letterbox: true
+
+model:
+  encoder_name: resnet34
+  encoder_weights: imagenet
+  warm_start_from: weights/best.safetensors
+
+optim:
+  lr: 5.0e-5   # gentle — CubiCasa baseline already trained
+  weight_decay: 1.0e-4
+  batch_size: 8
+
+train:
+  epochs: 15
+  log_every: 20
+  device: auto
+  checkpoint_every: 1
+
+output:
+  run_dir: runs/mixed

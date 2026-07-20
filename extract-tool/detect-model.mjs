@@ -17,6 +17,44 @@ const MODEL_URL_DEFAULT = 'https://github.com/anndygarcia/genesis-v0/releases/do
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
+// Resolve a model URL to a local file path that ORT can load.
+// In the browser, ORT fetches the URL directly. In Node, ORT only
+// loads from disk, so when given a URL we download to a local cache
+// (idempotent — re-downloads only if the file is missing).
+async function localModelPath(modelUrlOrPath) {
+  // Already a local path (no scheme, starts with ./, etc.)
+  if (!modelUrlOrPath.startsWith('http://') && !modelUrlOrPath.startsWith('https://')) {
+    return modelUrlOrPath;
+  }
+  // Browser: let ORT fetch directly
+  if (typeof document !== 'undefined') return modelUrlOrPath;
+  // Node: download to a cache file. Use createRequire so `require` is
+  // available in pure ESM contexts.
+  const isNode = typeof process !== 'undefined' && process.versions?.node;
+  if (!isNode) return modelUrlOrPath;
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+  const fsSync = req('fs');
+  const fs = fsSync.promises;
+  const path = req('path');
+  const cacheDir = process.platform === 'win32'
+    ? (process.env.TEMP || 'C:\\Temp')
+    : '/tmp/genesis-extract-cache';
+  await fs.mkdir(cacheDir, { recursive: true });
+  const name = path.basename(new URL(modelUrlOrPath).pathname) || 'walls.onnx';
+  const cached = path.join(cacheDir, name);
+  try {
+    await fs.access(cached);
+    return cached;
+  } catch {
+    const res = await fetch(modelUrlOrPath, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${modelUrlOrPath}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await fs.writeFile(cached, buf);
+    return cached;
+  }
+}
+
 // Preprocessing: letterbox-resize + ImageNet normalization.
 // Returns tensor of shape [1, 3, 512, 512] plus the unpad transform.
 export async function preprocessImage(canvas) {
@@ -88,7 +126,7 @@ export async function segmentWithModel(canvas, { modelUrl = MODEL_URL_DEFAULT } 
     ort = webMod.default || webMod;
     providers = ['wasm'];
   }
-  const session = await ort.InferenceSession.create(modelUrl, {
+  const session = await ort.InferenceSession.create(await localModelPath(modelUrl), {
     executionProviders: providers,
   });
   const { tensor, meta } = await preprocessImage(canvas);
@@ -191,10 +229,17 @@ export function maskToWallPolylines(mask, meta, { canvasW, canvasH }) {
 }
 
 // Extract door + window positions from the model mask.
-// Returns { doors: [{x, y}], windows: [{x, y}] } in original canvas coords.
+// Returns:
+//   doors:    [{x, y, w, h, px, py}]  in original canvas pixel coords
+//   windows:  [{x, y, w, h, px, py}]  in original canvas pixel coords
+// The (px, py) pair is the opening's centroid in pixel space; x/y/w/h
+// form the oriented bounding box in feet-space once callers apply
+// pixelsPerFoot. The orientation (whether w or h is the long axis)
+// determines which wall it lives on — horizontally-leaning openings
+// attach to vertical walls and vice versa.
 export function extractOpenings(mask, meta) {
   const doors = [], windows = [];
-  const seen = new Map();  // (x,y) -> { count, isDoor }
+  const seen = new Map();  // bucket key -> {min, max, count, c, sumX, sumY}
   const { offX, offY, scale } = meta;
   for (let y = 0; y < IMG_SIZE; y++) {
     for (let x = 0; x < IMG_SIZE; x++) {
@@ -202,18 +247,40 @@ export function extractOpenings(mask, meta) {
       if (cls !== 2 && cls !== 3) continue;
       if (x < offX || x >= offX + meta.newW) continue;
       if (y < offY || y >= offY + meta.newH) continue;
-      // Bucket to 16-pixel grid to dedupe
+      // Bucket to 16-pixel grid (in mask space) to dedupe and create
+      // one opening region per cluster.
       const gx = Math.floor((x - offX) / scale / 16) * 16;
       const gy = Math.floor((y - offY) / scale / 16) * 16;
       const k = `${gx},${gy}`;
-      if (!seen.has(k)) seen.set(k, { x: (x - offX) / scale, y: (y - offY) / scale, c: cls, count: 1 });
-      else seen.get(k).count++;
+      const px = (x - offX) / scale;  // pixel-space centroid
+      const py = (y - offY) / scale;
+      if (!seen.has(k)) {
+        seen.set(k, { c: cls, count: 0, sumX: 0, sumY: 0,
+                     minX: px, maxX: px, minY: py, maxY: py });
+      }
+      const v = seen.get(k);
+      v.count++;
+      v.sumX += px;
+      v.sumY += py;
+      if (px < v.minX) v.minX = px;
+      if (px > v.maxX) v.maxX = px;
+      if (py < v.minY) v.minY = py;
+      if (py > v.maxY) v.maxY = py;
     }
   }
   for (const v of seen.values()) {
     if (v.count < 5) continue;  // ignore noise
     const target = v.c === 2 ? doors : windows;
-    target.push({ x: v.x, y: v.y, count: v.count });
+    target.push({
+      // Centroid in original-canvas pixel coords.
+      px: v.sumX / v.count,
+      py: v.sumY / v.count,
+      // Oriented bbox in original pixel coords.
+      x: v.minX, y: v.minY,
+      w: v.maxX - v.minX,
+      h: v.maxY - v.minY,
+      count: v.count,
+    });
   }
   return { doors, windows };
 }

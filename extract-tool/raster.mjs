@@ -15,6 +15,7 @@ import { detectWalls } from './detect.mjs';
 import { calibrate } from './calibrate.mjs';
 import {
   findEnvelope, findRectangularRooms, attachLabels, attachHeights,
+  matchOpeningsToWalls,
 } from './fuse.mjs';
 
 export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } = {}) {
@@ -30,17 +31,11 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
   const tDet = performance.now();
   const det = await detectWalls(canvas);
   const lines = det.lines;
-
-  // 3. If the model is providing openings, use them directly.
-  let doors = [], windows = [];
-  if (det.source === 'model') {
-    try {
-      const model = await import('./detect-model.mjs');
-      // Re-run segmentation to get openings (we already have it; just refactor)
-      // Skip — easier to just emit blank openings since opening-to-wall-host
-      // matching is still v0.3 work.
-    } catch {}
-  }
+  const detMs = performance.now() - tDet;
+  // The model returns openings at no extra cost (same mask).
+  // When the Canny fallback is in play, openings is undefined and we
+  // emit empty arrays — the user gets walls + rooms but no doors/windows.
+  const openingsPixel = det.openings || { doors: [], windows: [] };
 
   // 4. Calibrate
   const cal = calibrate(lines, textRuns);
@@ -80,14 +75,21 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
     if (!room.h) room.h = 9;
   }
 
+  // 9. Match openings to walls. This produces plan doors + windows in
+  // the format the 3D viewer's renderer expects:
+  //   { id, x, z, w, axis: 'x'|'z', kind?, label }
+  const matched = matchOpeningsToWalls(
+    openingsPixel, linesInFt, rooms, ppf, H
+  );
+
   const elapsedMs = performance.now() - t0;
   return {
     plan: {
       name: fileName.replace(/\.pdf$/i, ''),
       rooms,
       footprint: envelope,
-      doors,
-      windows,
+      doors: matched.doors,
+      windows: matched.windows,
       source: 'raster-extract',
       calibration: cal,
       ocr: {
@@ -96,7 +98,14 @@ export async function extractPlanFromRasterCanvas(canvas, { fileName = 'plan' } 
           ? words.reduce((s, w) => s + w.confidence, 0) / words.length
           : 0,
       },
+      detection: {
+        source: det.source,
+        modelOpenings: {
+          doorCount: openingsPixel.doors?.length || 0,
+          windowCount: openingsPixel.windows?.length || 0,
+        },
+      },
     },
-    elapsedMs: { total: elapsedMs, ocr: ocrMs, detect: det.elapsedMs ?? 0 },
+    elapsedMs: { total: elapsedMs, ocr: ocrMs, detect: detMs },
   };
 }

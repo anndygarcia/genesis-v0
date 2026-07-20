@@ -1,0 +1,36 @@
+# CubiCasa5K cold-start / continued-training. Use when you don't have
+# labeled Garcia plans (or when you want a stronger baseline).
+#
+# Downloads CubiCasa5K from Zenodo and uses the original train/val/test
+# split files. 105 GB LMDB is too big for Colab free tier; use the
+# SVG source (~5 GB) and let our data_adapter stream from disk.
+#
+# Usage:
+#   python -m train.src.train --config train/configs/cubi_subset.yaml
+#       --epochs 30
+
+data:
+  data_mode: cubi
+  data_dir: data/cubicasa5k_svg
+  image_size: [512, 512]
+  num_workers: 4
+  normalize: true
+  letterbox: true
+
+model:
+  encoder_name: resnet34
+  encoder_weights: imagenet
+
+optim:
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 8
+
+train:
+  epochs: 30
+  log_every: 20
+  device: auto
+  checkpoint_every: 0
+
+output:
+  run_dir: runs/cubi

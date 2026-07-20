@@ -264,3 +264,134 @@ async function loadPdfData(pdfPath) {
   const buf = await fs.readFile(pdfPath);
   return new Uint8Array(buf);
 }
+
+// =============================================================
+//   OPENINGS MATCHING
+//
+// Given:
+//   - openingsPixel: [{px, py, x, y, w, h, count}] in original canvas px coords
+//   - linesInFt:     [{x1,y1,x2,y2}]  in feet-space, y-up
+//   - rooms:         [{x, z, w, d, name}] in feet-space
+//   - ppf:           pixels per foot
+//   - canvasH:       original canvas height in pixels
+//
+// Produce:
+//   doors:   [{x, z, w, axis: 'x'|'z', kind: 'exterior'|'interior', label}]
+//   windows: [{x, z, w, axis: 'x'|'z', label}]
+//
+// Algorithm:
+//   1. Convert each opening's centroid from canvas-px to feet-space.
+//      The canvas had y-down; we flip.
+//   2. For each opening, find the nearest wall within a small threshold.
+//      Wall orientation tells us the axis of the opening:
+//        horizontal wall (constant z) → opening axis = 'x' (door runs along x)
+//        vertical wall   (constant x) → opening axis = 'z'
+//   3. Compute position (ftX, ftY) directly as the centroid; the wall's
+//      projection point gives context for which room the opening belongs to.
+//   4. Width: take the model's bounding-box extent along the wall axis;
+//      fall back to 3 ft (door) / 4 ft (window) if the model gave nothing
+//      usable.
+//   5. Classify each door as exterior if the wall is on the envelope,
+//      interior otherwise.
+export function matchOpeningsToWalls(openingsPixel, linesInFt, rooms, ppf, canvasH) {
+  const envelope = findEnvelope(linesInFt);
+  if (!envelope) return { doors: [], windows: [] };
+  const doors = [];
+  const windows = [];
+  const process = (arr, isDoor) => {
+    for (const op of arr) {
+      // Convert px centroid → feet-space (canvas y is downward, plan y is up)
+      const ftX = op.px / ppf;
+      const ftY = (canvasH - op.py) / ppf;
+      // Find nearest wall (within 2 ft — typical residential wall thickness is 0.5 ft)
+      let bestDist = Infinity, bestWall = null;
+      for (const L of linesInFt) {
+        const ax = L.x1, az = L.y1;
+        const bx = L.x2, bz = L.y2;
+        const dx = bx - ax, dz = bz - az;
+        const lenSq = dx * dx + dz * dz;
+        let t = lenSq === 0 ? 0 : ((ftX - ax) * dx + (ftY - az) * dz) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const projX = ax + t * dx, projZ = az + t * dz;
+        const d = Math.hypot(ftX - projX, ftY - projZ);
+        if (d < bestDist) { bestDist = d; bestWall = { L, dx, dz }; }
+      }
+      // Threshold: nearest wall must be within a reasonable distance.
+      // In real architect drawings doors are within 0-2 ft of their wall.
+      // We relax to 12 ft for icons that drift away from their host
+      // wall (door-swing arcs are often drawn slightly offset).
+      if (!bestWall || bestDist > 12) continue;
+      const planDim = Math.max(envelope.w, envelope.d);
+      if (bestDist > planDim * 0.3) continue;
+      const onEnv = isOnEnvelope(bestWall.L, envelope);
+      const horizWall = Math.abs(bestWall.dz) < Math.abs(bestWall.dx);
+      // Width: take bbox extent along wall axis. Model sometimes gives 0
+      // for thin openings, so fall back to door=3 ft, window=4 ft.
+      let width;
+      if (horizWall) {
+        width = Math.max(op.w, 0) / ppf;
+      } else {
+        width = Math.max(op.h, 0) / ppf;
+      }
+      if (width < 0.5) width = isDoor ? 3 : 4;
+      width = Math.min(width, 12);  // cap at garage-door max
+      // For positioning: snap the opening to the wall line. Otherwise the
+      // geometry renderer in app.js (which uses (x, axis, w) to draw a
+      // window slot along the wall) gets the door crossing both rooms.
+      let posX = ftX, posZ = ftY;
+      const segDx = bestWall.dx, segDz = bestWall.dz;
+      const segLenSq = segDx * segDx + segDz * segDz;
+      if (segLenSq > 0) {
+        const t = ((ftX - bestWall.L.x1) * segDx + (ftY - bestWall.L.y1) * segDz) / segLenSq;
+        const tc = Math.max(0, Math.min(1, t));
+        posX = bestWall.L.x1 + tc * segDx;
+        posZ = bestWall.L.y1 + tc * segDz;
+      }
+      const out = {
+        x: posX,
+        z: posZ,
+        w: Number(width.toFixed(2)),
+        axis: horizWall ? 'x' : 'z',
+      };
+      if (isDoor) {
+        out.id = `door-auto-${doors.length + 1}`;
+        out.label = onEnv ? 'Door (exterior)' : 'Door';
+        if (onEnv) out.kind = 'exterior';
+      } else {
+        out.id = `window-auto-${windows.length + 1}`;
+        out.label = 'Window';
+      }
+      if (isDoor) doors.push(out); else windows.push(out);
+    }
+  };
+  process(openingsPixel.doors, true);
+  process(openingsPixel.windows, false);
+  // Dedupe openings that ended up at the same position. With the
+  // bucketing-then-bbox approach, a single real opening often becomes
+  // 2-3 buckets (model mask holes show up as separate regions). Collapse
+  // anything within 2 ft of an already-emitted opening.
+  const dedupe = (arr) => {
+    const out = [];
+    for (const o of arr) {
+      if (out.some(p => Math.hypot(p.x - o.x, p.z - o.z) < 2.0)) continue;
+      out.push(o);
+    }
+    return out;
+  };
+  return { doors: dedupe(doors), windows: dedupe(windows) };
+}
+
+// Is a wall (line) on the envelope of the building?
+// True if the wall lies within 0.5 ft of any envelope edge.
+function isOnEnvelope(L, envelope) {
+  const tol = 0.5;
+  const pts = [[L.x1, L.y1], [L.x2, L.y2]];
+  for (const [px, pz] of pts) {
+    const onLeft = Math.abs(px - envelope.x) < tol;
+    const onRight = Math.abs(px - (envelope.x + envelope.w)) < tol;
+    const onTop = Math.abs(pz - envelope.z) < tol;
+    const onBot = Math.abs(pz - (envelope.z + envelope.d)) < tol;
+    if (onLeft || onRight || onTop || onBot) return true;
+  }
+  return false;
+}
