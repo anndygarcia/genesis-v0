@@ -90,16 +90,20 @@ async function runExtract(file) {
   const t0 = performance.now();
   try {
     // Load pipeline modules lazily (only when the user actually uses it).
+    // pdfjs 3.11 only ships pdf.js (UMD) on jsdelivr's flat tree — the
+    // .mjs path doesn't exist for that version. Pin to 4.x which
+    // delivers a proper ESM build, and pull both the lib + worker from
+    // the same CDN.
     const [
       browserModule,
       pdfjsModule,
     ] = await Promise.all([
       loadExtractModule(),
-      import('https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.mjs'),
+      import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.min.mjs'),
     ]);
     const pdfjsLib = pdfjsModule;
     pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.mjs';
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.worker.min.mjs';
 
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
