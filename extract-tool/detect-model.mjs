@@ -11,14 +11,14 @@
 // canvas dimensions + the letterbox offset, so callers can map pixels
 // back to the original canvas coordinates.
 
-// Default URL: the CF Pages Function proxy at genesis-mind.com/api/walls.
-// CF Pages has a 25 MB static-asset cap and jsdelivr's gh-mirror has
-// a 20 MB per-file cap — neither hosts the 93 MB ONNX directly. The
-// Function fetch()es from GH Releases, streams the body through a
-// TransformStream, and returns it with access-control-allow-origin: *.
-// We use the absolute URL (instead of a same-origin `/api/walls`) so
-// Node-based CLI invocations also work without a relative-URL shim.
-const MODEL_URL_DEFAULT = 'https://genesis-mind.com/api/walls';
+// Default URL: jsdelivr gh-mirror URL on the int8-quantized ONNX
+// at extract-tool/models/walls-inline.onnx. The int8 version
+// is 23.7 MB (vs 93.5 MB for fp32). jsdelivr's strict limit is
+// 20 MB but in practice builds slightly over 20 MB do serve — we
+// verified 24 MB serving OK. If it fails, we fall back to the
+// CF Pages Function proxy (/api/walls), which has its own
+// issue (70 MB response cap, see comment in functions/api/walls.js).
+const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/walls-inline.onnx';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 
