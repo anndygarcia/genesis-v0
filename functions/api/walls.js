@@ -10,7 +10,13 @@
 // Route: GET /api/models/walls → 200 OK with model bytes,
 //   content-type application/octet-stream, CORS * enabled.
 
-const GH_RELEASE_URL = 'https://github.com/anndygarcia/genesis-v0/releases/download/v0.3-walls/walls.onnx';
+// Upload #1 in the v0.3-walls release asset list. Earlier we had
+// a name collision — the first attempt to ship this ONNX ended up
+// at /walls.onnx but the file shipped was a stale safetensors
+// re-encoding. We uploaded the real ONNX as walls-inline.onnx and
+// use that for the proxy because the older /walls.onnx can't be
+// deleted through the API token in use (HTTP 404).
+const GH_RELEASE_URL = 'https://github.com/anndygarcia/genesis-v0/releases/download/v0.3-walls/walls-inline.onnx';
 
 export async function onRequestGet() {
   try {
