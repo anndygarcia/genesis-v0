@@ -28,6 +28,72 @@ async function loadExtractModule() {
   return import('./extract-tool/extract-browser.mjs');
 }
 
+// Async extraction: upload to backend pipeline, poll for status,
+// return the final plan. Falls back to in-browser if the backend
+// rejects / times out. Used by the upload UI when the backend
+// is reachable; the in-browser path remains as a fallback.
+async function runExtractAsync(file, dropText) {
+  const t0 = performance.now();
+  // 1. POST to /api/extract (CF Pages Function proxies to Railway)
+  if (dropText) dropText.textContent = `Uploading ${file.name}…`;
+  const fd = new FormData();
+  fd.append('pdf', file, file.name);
+  const uploadRes = await fetch('/api/extract', { method: 'POST', body: fd });
+  if (!uploadRes.ok) {
+    throw new Error(`upload failed: HTTP ${uploadRes.status}`);
+  }
+  const { job_id } = await uploadRes.json();
+  if (dropText) dropText.textContent = `Job ${job_id.slice(0, 8)} queued — extracting on the server…`;
+
+  // 2. Poll status every 2s
+  const POLL_MS = 2000;
+  const MAX_MS = 600_000;  // 10-minute ceiling
+  let elapsed = 0;
+  while (elapsed < MAX_MS) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    elapsed = performance.now() - t0;
+    const pollRes = await fetch(`/api/extract?id=${job_id}`);
+    if (!pollRes.ok) {
+      throw new Error(`poll failed: HTTP ${pollRes.status}`);
+    }
+    const status = await pollRes.json();
+    if (status.status === 'complete') {
+      if (dropText) dropText.textContent = `✓ Extracted in ${(elapsed / 1000).toFixed(1)}s — fetching plan…`;
+      const planRes = await fetch(`/api/extract?plan=1&id=${job_id}`);
+      if (!planRes.ok) throw new Error(`plan fetch failed: HTTP ${planRes.status}`);
+      return await planRes.json();
+    }
+    if (status.status === 'failed') {
+      throw new Error(`pipeline failed: ${status.error || 'unknown'}`);
+    }
+    // Still queued or running — show progress
+    const dot = '.'.repeat((Math.floor(elapsed / 2000) % 3) + 1);
+    if (dropText) dropText.textContent =
+      `${status.status} ${dot} (${(elapsed / 1000).toFixed(0)}s)`;
+  }
+  throw new Error(`pipeline timed out after ${(elapsed / 1000).toFixed(0)}s`);
+}
+
+// Apply a finalized plan to the 3D viewer. Used by both the async
+// and local pipelines.
+function applyPlan(plan, file) {
+  const dropText = document.getElementById('drop-text');
+  const overlay = document.getElementById('drop-overlay');
+  try {
+    window.GENESIS.loadPlan(plan);
+  } catch (e) {
+    console.error('loadPlan failed', e);
+    if (dropText) dropText.textContent = `Load failed: ${e.message}`;
+    setTimeout(() => overlay?.classList.add('hidden'), 1800);
+    return;
+  }
+  document.getElementById('demo-title').textContent =
+    `${plan.name || file.name} · Plan #${plan.planNumber || 1} (server-extracted)`;
+  const clearBtn = document.getElementById('btn-clear-plan');
+  if (clearBtn) clearBtn.classList.remove('hidden');
+  setTimeout(() => overlay?.classList.add('hidden'), 900);
+}
+
 // Try-sample-plan button. Bundles a small raster PDF as base64 so the
 // user can verify the extract pipeline without finding a file. The PDF
 // decodes to a 6-room plan; the Yytsi model detects ~3 rooms + 2 doors
@@ -113,6 +179,22 @@ async function runExtract(file) {
   const dropText = document.getElementById('drop-text');
   overlay?.classList.remove('hidden');
   if (dropText) dropText.textContent = `Extracting 3D from ${file.name}…`;
+
+  // Async pipeline preferred when available — uploads to backend,
+  // polls for status, doesn't block the UI for 30+ seconds.
+  if (window.location.hostname !== 'localhost' && !window.location.search.includes('nobackend')) {
+    try {
+      const result = await runExtractAsync(file, dropText);
+      applyPlan(result, file);
+      return;
+    } catch (e) {
+      console.warn('[extract] async pipeline unavailable, falling back to in-browser:', e.message);
+      if (dropText) dropText.textContent = `Async pipeline failed (${e.message}); running locally…`;
+    }
+  }
+
+  // Local fallback: in-browser pipeline (works without backend,
+  // but blocks the UI for 10-30s on multi-page PDFs).
   const t0 = performance.now();
   try {
     // Load pipeline modules lazily (only when the user actually uses it).
@@ -158,21 +240,7 @@ async function runExtract(file) {
     const dt = performance.now() - t0;
     if (dropText) dropText.textContent =
       `✓ ${plan.rooms.length} rooms extracted in ${(dt / 1000).toFixed(1)}s (${kind})`;
-
-    // Hand off to the existing 3D viewer
-    try {
-      window.GENESIS.loadPlan(plan);
-    } catch (e) {
-      console.error('loadPlan failed', e);
-      if (dropText) dropText.textContent = `Load failed: ${e.message}`;
-      setTimeout(() => overlay?.classList.add('hidden'), 1800);
-      return;
-    }
-    document.getElementById('demo-title').textContent =
-      `${plan.name || file.name} · Plan #${plan.planNumber || 1} (auto-extracted)`;
-    const clearBtn = document.getElementById('btn-clear-plan');
-    if (clearBtn) clearBtn.classList.remove('hidden');
-    setTimeout(() => overlay?.classList.add('hidden'), 900);
+    applyPlan(plan, file);
   } catch (err) {
     console.error('Extract failed', err);
     if (dropText) dropText.textContent = `Extract failed: ${err.message}`;

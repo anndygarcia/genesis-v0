@@ -10,3 +10,9 @@
 
 !/extract-tool/models/
 !/extract-tool/models/chunks/
+
+# Pipeline server (Railway.app) — node_modules are installed by
+# the Dockerfile, not committed.
+pipeline/node_modules/
+pipeline/.env
+pipeline/package-lock.json
