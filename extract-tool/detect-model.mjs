@@ -14,14 +14,19 @@
 // Default URL: jsdelivr's gh-mirror serving a list of chunk files
 // at extract-tool/models/chunks/walls-chunk{N}.bin. jsdelivr's hard
 // per-file cap is 20 MB but the int8 ONNX is 23.7 MB, so we split
-// it into 2 chunks of 11.77 MB each (well under the cap). The
+// it into 2 chunks of 11.79 MB each (well under the cap). The
 // browser fetches them in parallel, drops the 4-byte BE-uint32
 // header (which both halves carry for redundancy), concatenates
 // the bodies, and feeds the result to ORT.
 //
+// We pin to commit SHA rather than @main because jsdelivr's @main
+// edge can lag the latest GH push by 5–10 minutes; pinning to
+// a SHA-side URL bypasses that.
+// Note: when revising model, bump this to the new commit SHA.
+//
 // For Node-side runs we download the chunks to /tmp and concatenate
 // on disk; the same header convention.
-const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@main/extract-tool/models/chunks';
+const MODEL_URL_DEFAULT = 'https://cdn.jsdelivr.net/gh/anndygarcia/genesis-v0@b00ea5b/extract-tool/models/chunks';
 const IMG_SIZE = 512;
 const CLASS_NAMES = ['floor', 'wall', 'door', 'window'];
 const MODEL_CHUNKS = ['walls-chunk0.bin', 'walls-chunk1.bin'];
